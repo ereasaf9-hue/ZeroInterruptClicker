@@ -495,7 +495,6 @@ fun SetupWizardBottomSheet(
             val shizukuConnected = state.connectionState == ShizukuConnectionState.CONNECTED
             val shizukuBtn = when (state.connectionState) {
                 ShizukuConnectionState.SHIZUKU_NOT_RUNNING -> "打开 Shizuku"
-                ShizukuConnectionState.NO_PERMISSION -> "授予权限"
                 ShizukuConnectionState.NEEDS_SHIZUKU_AUTH -> "授权连接"
                 ShizukuConnectionState.BINDING -> "重新连接"
                 ShizukuConnectionState.CONNECTED -> "已连接"

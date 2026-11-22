@@ -32,8 +32,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.zerointerrupt.clicker.BuildConfig
 import com.zerointerrupt.clicker.QuickTileService
 import com.zerointerrupt.clicker.R
@@ -60,9 +58,6 @@ class MainActivity : ComponentActivity() {
     private lateinit var snackbarHostState: SnackbarHostState
     private var currentActiveTab by mutableStateOf(MainTab.HOME)
     private var requestedTab by mutableStateOf<MainTab?>(null)
-    private var shizukuApiPermAutoAsked = false
-    private var shizukuApiPermRequested = false
-
     private var uiModel by mutableStateOf(
         MainUiState(
             connectionState = ShizukuConnectionState.SHIZUKU_NOT_RUNNING,
@@ -122,19 +117,6 @@ class MainActivity : ComponentActivity() {
         syncFromStorageAndSystem()
     }
 
-    /**
-     * The Shizuku server validates every privileged call with
-     * `checkPermission(API_V23, pid, uid)`, so this runtime permission has to be
-     * granted to the app itself. Enabling the app inside the Shizuku manager only
-     * flips a server side flag and never grants it.
-     */
-    private val shizukuApiPermLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        ShizukuController.onApiPermissionResult(granted)
-        syncFromStorageAndSystem()
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -145,7 +127,6 @@ class MainActivity : ComponentActivity() {
         syncFromStorageAndSystem()
 
         setContent {
-            val lifecycleOwner = LocalLifecycleOwner.current
             val connectionState by ShizukuController.connectionState.collectAsState()
             val engineSnapshot by ShizukuController.engineSnapshot.collectAsState()
             val slotStates by ShizukuController.slotStates.collectAsState()
@@ -158,18 +139,6 @@ class MainActivity : ComponentActivity() {
 
             LaunchedEffect(configVersion) {
                 syncFromStorageAndSystem()
-            }
-
-            // The Shizuku binder can arrive long after the activity is shown, so the
-            // runtime permission request is also triggered by the connection state.
-            LaunchedEffect(connectionState) {
-                if (connectionState != ShizukuConnectionState.NO_PERMISSION) return@LaunchedEffect
-                if (shizukuApiPermAutoAsked || ShizukuController.hasApiPermission()) return@LaunchedEffect
-                if (!lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
-                    return@LaunchedEffect
-                }
-                shizukuApiPermAutoAsked = true
-                shizukuApiPermLauncher.launch(ShizukuController.PERMISSION_API_V23)
             }
 
             LaunchedEffect(ShizukuController.emergencyUngrabEvents) {
@@ -259,22 +228,8 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         ShizukuController.evaluateShizukuState()
-        maybeRequestShizukuApiPermission()
         LocalRpcServer.syncWithSettings(this)
         syncFromStorageAndSystem()
-    }
-
-    /**
-     * Asks for the Shizuku API runtime permission once per app session. Without it the
-     * Shizuku server rejects every privileged call of this app, even when the app is
-     * listed as allowed inside the Shizuku manager.
-     */
-    private fun maybeRequestShizukuApiPermission() {
-        if (shizukuApiPermAutoAsked) return
-        if (ShizukuController.hasApiPermission()) return
-        if (ShizukuController.connectionState.value != ShizukuConnectionState.NO_PERMISSION) return
-        shizukuApiPermAutoAsked = true
-        shizukuApiPermLauncher.launch(ShizukuController.PERMISSION_API_V23)
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -1031,10 +986,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
-            ShizukuConnectionState.NO_PERMISSION -> {
-                requestShizukuApiPermission(scope)
-            }
-
             ShizukuConnectionState.NEEDS_SHIZUKU_AUTH -> {
                 ShizukuController.requestPermission()
                 showMessage(scope, "请在弹出的 Shizuku 授权窗口中允许本应用")
@@ -1052,36 +1003,6 @@ class MainActivity : ComponentActivity() {
                     ShizukuController.refreshCapabilitiesAsync()
                 }
             }
-        }
-    }
-
-    private fun requestShizukuApiPermission(scope: kotlinx.coroutines.CoroutineScope) {
-        val permission = ShizukuController.PERMISSION_API_V23
-        // shouldShowRequestPermissionRationale() is false both before the first ask
-        // and after the user denied it permanently - only the second case has to be
-        // sent to the app details page.
-        val permanentlyDenied = shizukuApiPermRequested && try {
-            !shouldShowRequestPermissionRationale(permission)
-        } catch (_: Throwable) {
-            false
-        }
-        if (!permanentlyDenied) {
-            shizukuApiPermRequested = true
-            shizukuApiPermLauncher.launch(permission)
-        } else {
-            openAppDetailsSettings()
-            showMessage(scope, "请在系统设置中允许「Shizuku API」权限后返回本应用")
-        }
-    }
-
-    private fun openAppDetailsSettings() {
-        try {
-            val intent = Intent(
-                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                Uri.parse("package:$packageName")
-            )
-            startActivity(intent)
-        } catch (_: Throwable) {
         }
     }
 
