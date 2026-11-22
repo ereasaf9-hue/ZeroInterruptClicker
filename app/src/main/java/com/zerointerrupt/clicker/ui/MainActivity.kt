@@ -32,6 +32,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.zerointerrupt.clicker.BuildConfig
 import com.zerointerrupt.clicker.QuickTileService
 import com.zerointerrupt.clicker.R
@@ -143,6 +145,7 @@ class MainActivity : ComponentActivity() {
         syncFromStorageAndSystem()
 
         setContent {
+            val lifecycleOwner = LocalLifecycleOwner.current
             val connectionState by ShizukuController.connectionState.collectAsState()
             val engineSnapshot by ShizukuController.engineSnapshot.collectAsState()
             val slotStates by ShizukuController.slotStates.collectAsState()
@@ -155,6 +158,18 @@ class MainActivity : ComponentActivity() {
 
             LaunchedEffect(configVersion) {
                 syncFromStorageAndSystem()
+            }
+
+            // The Shizuku binder can arrive long after the activity is shown, so the
+            // runtime permission request is also triggered by the connection state.
+            LaunchedEffect(connectionState) {
+                if (connectionState != ShizukuConnectionState.NO_PERMISSION) return@LaunchedEffect
+                if (shizukuApiPermAutoAsked || ShizukuController.hasApiPermission()) return@LaunchedEffect
+                if (!lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                    return@LaunchedEffect
+                }
+                shizukuApiPermAutoAsked = true
+                shizukuApiPermLauncher.launch(ShizukuController.PERMISSION_API_V23)
             }
 
             LaunchedEffect(ShizukuController.emergencyUngrabEvents) {
