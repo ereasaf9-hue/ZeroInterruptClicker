@@ -116,6 +116,7 @@ object ShizukuController {
     private const val USER_SERVICE_BIND_TIMEOUT_MS = 15_000L
     private const val USER_SERVICE_RECONNECT_DELAY_MS = 750L
     private const val PERMISSION_REQUEST_TIMEOUT_MS = 20_000L
+    private const val USER_SERVICE_STARTUP_DELAY_MS = 2_000L
     private const val MAX_AUTO_BIND_RETRIES = 4
     private val BIND_RETRY_DELAYS_MS = longArrayOf(1_500L, 3_000L, 6_000L, 12_000L)
 
@@ -185,7 +186,7 @@ object ShizukuController {
             permissionRequestPending = false
             if (grantResult == PackageManager.PERMISSION_GRANTED) {
                 autoBindRetries = 0
-                bindUserService()
+                scheduleUserServiceBind()
             } else {
                 invalidateBindAttempt()
                 service = null
@@ -200,6 +201,7 @@ object ShizukuController {
     private val userServiceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
             finishBindAttempt()
+            Log.i(TAG, "UserService connection callback received for $name")
             if (binder == null || !binder.pingBinder()) {
                 handleBindFailure("Shizuku UserService 返回了无效 Binder，正在重建服务…")
                 return
@@ -225,7 +227,7 @@ object ShizukuController {
                     _slotStates.value = List(16) { 0 }
                     if (Shizuku.pingBinder() && hasPermission()) {
                         _connectionState.value = ShizukuConnectionState.BINDING
-                        bindUserService(forceFreshService = true)
+                        scheduleUserServiceBind(forceFreshService = true)
                     } else {
                         _connectionState.value = ShizukuConnectionState.SHIZUKU_NOT_RUNNING
                     }
@@ -340,7 +342,48 @@ object ShizukuController {
                 return@launch
             }
             bindInFlight = false
-            bindUserService(forceFreshService = true)
+            scheduleUserServiceBind(forceFreshService = true)
+        }
+    }
+
+    /**
+     * Give Shizuku's provider and the app process a short startup window before
+     * creating the privileged UserService. Some vendor ROMs can fail the first
+     * UserService launch while the provider is still becoming available.
+     */
+    @Synchronized
+    private fun scheduleUserServiceBind(forceFreshService: Boolean = false) {
+        if (bindInFlight) return
+        bindInFlight = true
+        val scheduledId = ++bindAttemptId
+        _connectionState.value = ShizukuConnectionState.BINDING
+        _engineSnapshot.value = _engineSnapshot.value.copy(
+            statusDetail = "正在等待 Shizuku 服务稳定后启动 UserService…",
+            bindRetryCount = autoBindRetries
+        )
+        scope.launch {
+            delay(USER_SERVICE_STARTUP_DELAY_MS)
+            val isCurrent = synchronized(this@ShizukuController) {
+                if (bindAttemptId != scheduledId || !bindInFlight) {
+                    false
+                } else {
+                    bindInFlight = false
+                    true
+                }
+            }
+            if (!isCurrent) return@launch
+            val shizukuReady = try {
+                Shizuku.pingBinder() && hasPermission()
+            } catch (t: Throwable) {
+                Log.w(TAG, "Shizuku binder was unavailable after startup delay.", t)
+                false
+            }
+            if (!shizukuReady) {
+                evaluateShizukuState()
+                return@launch
+            }
+            Log.i(TAG, "Starting UserService after ${USER_SERVICE_STARTUP_DELAY_MS}ms stabilization")
+            bindUserService(forceFreshService)
         }
     }
 
@@ -371,7 +414,7 @@ object ShizukuController {
             }
             if (!prepareReconnect(reconnectId)) return@launch
             bindInFlight = false
-            bindUserService(forceFreshService = true)
+            scheduleUserServiceBind(forceFreshService = true)
         }
     }
 
@@ -410,7 +453,7 @@ object ShizukuController {
         }
         autoBindRetries = 0
         reconnectAttempts = 0
-        bindUserService(forceFreshService = true)
+        scheduleUserServiceBind(forceFreshService = true)
     }
 
     @Synchronized
@@ -442,7 +485,7 @@ object ShizukuController {
             _connectionState.value = ShizukuConnectionState.CONNECTED
             refreshCapabilitiesAsync()
         } else {
-            bindUserService()
+            scheduleUserServiceBind()
         }
     }
 
@@ -465,7 +508,7 @@ object ShizukuController {
             }
             if (hasPermission()) {
                 autoBindRetries = 0
-                bindUserService()
+                scheduleUserServiceBind()
                 return
             }
             // Shizuku API permission is requested through Shizuku itself, not through
@@ -499,6 +542,7 @@ object ShizukuController {
         Shizuku.UserServiceArgs(
             ComponentName(ctx.packageName, TouchMuxUserService::class.java.name)
         )
+            .tag("${ctx.packageName}.touchmux")
             .daemon(false)
             .processNameSuffix("touchmux")
             .debuggable(BuildConfig.DEBUG)
@@ -538,6 +582,7 @@ object ShizukuController {
         boundArgs = args
 
         try {
+            Log.i(TAG, "Binding UserService component=${TouchMuxUserService::class.java.name}, version=$userServiceVersionCode, forceFresh=$forceFreshService")
             Shizuku.bindUserService(args, userServiceConnection)
             scope.launch {
                 delay(USER_SERVICE_BIND_TIMEOUT_MS)
