@@ -495,15 +495,23 @@ fun SetupWizardBottomSheet(
             val shizukuConnected = state.connectionState == ShizukuConnectionState.CONNECTED
             val shizukuBtn = when (state.connectionState) {
                 ShizukuConnectionState.SHIZUKU_NOT_RUNNING -> "打开 Shizuku"
-                ShizukuConnectionState.NO_PERMISSION -> "授权连接"
-                ShizukuConnectionState.BINDING -> "连接中..."
+                ShizukuConnectionState.NO_PERMISSION -> "授予权限"
+                ShizukuConnectionState.NEEDS_SHIZUKU_AUTH -> "授权连接"
+                ShizukuConnectionState.BINDING -> "重新连接"
                 ShizukuConnectionState.CONNECTED -> "已连接"
                 ShizukuConnectionState.ERROR -> "重试"
+            }
+            val shizukuSubtitle = if (shizukuConnected) {
+                "已连接"
+            } else {
+                state.engineSnapshot.statusDetail
+                    .takeIf { it.isNotBlank() && it != "未连接 Shizuku 服务" }
+                    ?: "未连接"
             }
             WizardStepCard(
                 step = (stepNum++).toString(),
                 title = "Shizuku 通道",
-                subtitle = if (shizukuConnected) "已连接" else "未连接",
+                subtitle = shizukuSubtitle,
                 done = shizukuConnected,
                 actionLabel = shizukuBtn,
                 onAction = callbacks.onGrantShizuku

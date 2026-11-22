@@ -58,6 +58,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var snackbarHostState: SnackbarHostState
     private var currentActiveTab by mutableStateOf(MainTab.HOME)
     private var requestedTab by mutableStateOf<MainTab?>(null)
+    private var shizukuApiPermAutoAsked = false
+    private var shizukuApiPermRequested = false
 
     private var uiModel by mutableStateOf(
         MainUiState(
@@ -115,6 +117,19 @@ class MainActivity : ComponentActivity() {
     private val batteryOptLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
+        syncFromStorageAndSystem()
+    }
+
+    /**
+     * The Shizuku server validates every privileged call with
+     * `checkPermission(API_V23, pid, uid)`, so this runtime permission has to be
+     * granted to the app itself. Enabling the app inside the Shizuku manager only
+     * flips a server side flag and never grants it.
+     */
+    private val shizukuApiPermLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        ShizukuController.onApiPermissionResult(granted)
         syncFromStorageAndSystem()
     }
 
@@ -229,8 +244,22 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         ShizukuController.evaluateShizukuState()
+        maybeRequestShizukuApiPermission()
         LocalRpcServer.syncWithSettings(this)
         syncFromStorageAndSystem()
+    }
+
+    /**
+     * Asks for the Shizuku API runtime permission once per app session. Without it the
+     * Shizuku server rejects every privileged call of this app, even when the app is
+     * listed as allowed inside the Shizuku manager.
+     */
+    private fun maybeRequestShizukuApiPermission() {
+        if (shizukuApiPermAutoAsked) return
+        if (ShizukuController.hasApiPermission()) return
+        if (ShizukuController.connectionState.value != ShizukuConnectionState.NO_PERMISSION) return
+        shizukuApiPermAutoAsked = true
+        shizukuApiPermLauncher.launch(ShizukuController.PERMISSION_API_V23)
     }
 
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -363,10 +392,7 @@ class MainActivity : ComponentActivity() {
             },
             onGrantOverlay = { openOverlayPermissionSettings() },
             onGrantShizuku = {
-                ShizukuController.requestPermission()
-                if (ShizukuController.connectionState.value == ShizukuConnectionState.SHIZUKU_NOT_RUNNING) {
-                    showMessage(scope, "未检测到 Shizuku 后台服务，请先打开 Shizuku 并启动")
-                }
+                handleShizukuAction(scope)
             },
             onGrantNotif = {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -972,6 +998,95 @@ class MainActivity : ComponentActivity() {
             Uri.parse("package:$packageName")
         )
         overlayPermLauncher.launch(intent)
+    }
+
+    /**
+     * Single entry point for every Shizuku related user action. The previous
+     * implementation routed all states through `Shizuku.requestPermission()`, which
+     * made the "connecting" button a dead end: the request was silently ignored while
+     * a bind was in flight, so the UI stayed on "connecting" forever.
+     */
+    private fun handleShizukuAction(scope: kotlinx.coroutines.CoroutineScope) {
+        when (ShizukuController.connectionState.value) {
+            ShizukuConnectionState.SHIZUKU_NOT_RUNNING -> {
+                if (!openShizukuManagerApp()) {
+                    showMessage(scope, "未检测到 Shizuku 后台服务，请先安装并启动 Shizuku")
+                } else {
+                    showMessage(scope, "已打开 Shizuku，请在管理器中启动服务后返回本应用")
+                }
+            }
+
+            ShizukuConnectionState.NO_PERMISSION -> {
+                requestShizukuApiPermission(scope)
+            }
+
+            ShizukuConnectionState.NEEDS_SHIZUKU_AUTH -> {
+                ShizukuController.requestPermission()
+                showMessage(scope, "请在弹出的 Shizuku 授权窗口中允许本应用")
+            }
+
+            ShizukuConnectionState.BINDING, ShizukuConnectionState.ERROR -> {
+                scope.launch(Dispatchers.IO) {
+                    ShizukuController.forceRebind()
+                }
+                showMessage(scope, "正在重建 Shizuku 连接…")
+            }
+
+            ShizukuConnectionState.CONNECTED -> {
+                scope.launch(Dispatchers.IO) {
+                    ShizukuController.refreshCapabilitiesAsync()
+                }
+            }
+        }
+    }
+
+    private fun requestShizukuApiPermission(scope: kotlinx.coroutines.CoroutineScope) {
+        val permission = ShizukuController.PERMISSION_API_V23
+        // shouldShowRequestPermissionRationale() is false both before the first ask
+        // and after the user denied it permanently - only the second case has to be
+        // sent to the app details page.
+        val permanentlyDenied = shizukuApiPermRequested && try {
+            !shouldShowRequestPermissionRationale(permission)
+        } catch (_: Throwable) {
+            false
+        }
+        if (!permanentlyDenied) {
+            shizukuApiPermRequested = true
+            shizukuApiPermLauncher.launch(permission)
+        } else {
+            openAppDetailsSettings()
+            showMessage(scope, "请在系统设置中允许「Shizuku API」权限后返回本应用")
+        }
+    }
+
+    private fun openAppDetailsSettings() {
+        try {
+            val intent = Intent(
+                Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:$packageName")
+            )
+            startActivity(intent)
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun openShizukuManagerApp(): Boolean {
+        val managerPackage = "moe.shizuku.privileged.api"
+        val launchIntent = try {
+            packageManager.getLaunchIntentForPackage(managerPackage)
+        } catch (_: Throwable) {
+            null
+        }
+        if (launchIntent != null) {
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            return try {
+                startActivity(launchIntent)
+                true
+            } catch (_: Throwable) {
+                false
+            }
+        }
+        return false
     }
 
     @SuppressLint("BatteryLife")

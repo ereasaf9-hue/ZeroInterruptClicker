@@ -1,9 +1,34 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Properties
 
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.plugin.compose")
 }
+
+// Optional release signing. Configure it through local.properties (git ignored) or
+// the matching environment variables so that every release is signed with the same
+// certificate and users can install updates in place instead of reinstalling.
+val localProperties = Properties().apply {
+    val localFile = rootProject.file("local.properties")
+    if (localFile.exists()) {
+        localFile.inputStream().use { stream -> load(stream) }
+    }
+}
+
+fun releaseProp(name: String): String? =
+    (project.findProperty(name) as String?) ?: System.getenv(name) ?: localProperties.getProperty(name)
+
+val releaseStoreFile: String? = releaseProp("ZIC_STORE_FILE")
+val releaseStorePassword: String? = releaseProp("ZIC_STORE_PASSWORD")
+val releaseKeyAlias: String? = releaseProp("ZIC_KEY_ALIAS")
+val releaseKeyPassword: String? = releaseProp("ZIC_KEY_PASSWORD")
+
+val hasReleaseSigning = !releaseStoreFile.isNullOrBlank() &&
+    !releaseStorePassword.isNullOrBlank() &&
+    !releaseKeyAlias.isNullOrBlank() &&
+    !releaseKeyPassword.isNullOrBlank() &&
+    file(releaseStoreFile).exists()
 
 android {
     namespace = "com.zerointerrupt.clicker"
@@ -14,8 +39,8 @@ android {
         applicationId = "com.zerointerrupt.clicker"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "2.1.4"
+        versionCode = 9
+        versionName = "2.1.5"
 
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
@@ -25,6 +50,23 @@ android {
             cmake {
                 cppFlags += listOf("-std=c++17", "-O2", "-Wall", "-Wextra")
                 arguments += listOf("-DANDROID_STL=c++_shared")
+            }
+        }
+    }
+
+    // Optional release signing. Configure it through local.properties (git ignored) or
+    // the matching environment variables so that every release is signed with the same
+    // certificate and users can install updates in place instead of reinstalling.
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseStoreFile!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
             }
         }
     }
@@ -39,7 +81,11 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (hasReleaseSigning) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 
