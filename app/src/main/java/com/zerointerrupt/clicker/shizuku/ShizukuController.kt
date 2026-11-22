@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import rikka.shizuku.Shizuku
@@ -78,7 +79,14 @@ object ShizukuController {
     private var listenersRegistered = false
     private var boundArgs: Shizuku.UserServiceArgs? = null
     @Volatile
+    private var bindInFlight = false
+    @Volatile
+    private var bindAttemptId = 0
+    @Volatile
     private var service: ITouchMuxService? = null
+
+    private const val USER_SERVICE_BIND_TIMEOUT_MS = 15_000L
+    private const val USER_SERVICE_RECONNECT_DELAY_MS = 750L
 
     private val _connectionState = MutableStateFlow(ShizukuConnectionState.SHIZUKU_NOT_RUNNING)
     val connectionState: StateFlow<ShizukuConnectionState> = _connectionState.asStateFlow()
@@ -128,6 +136,7 @@ object ShizukuController {
 
     private val binderDeadListener = Shizuku.OnBinderDeadListener {
         Log.w(TAG, "Shizuku binder died; resetting service reference.")
+        invalidateBindAttempt()
         service = null
         _slotStates.value = List(16) { 0 }
         _connectionState.value = ShizukuConnectionState.SHIZUKU_NOT_RUNNING
@@ -142,6 +151,8 @@ object ShizukuController {
             if (grantResult == PackageManager.PERMISSION_GRANTED) {
                 bindUserService()
             } else {
+                invalidateBindAttempt()
+                service = null
                 _connectionState.value = ShizukuConnectionState.NO_PERMISSION
                 _engineSnapshot.value = _engineSnapshot.value.copy(
                     statusDetail = "用户拒绝了 Shizuku 授权"
@@ -152,15 +163,14 @@ object ShizukuController {
 
     private val userServiceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+            finishBindAttempt()
             if (binder == null || !binder.pingBinder()) {
-                _connectionState.value = ShizukuConnectionState.ERROR
-                _engineSnapshot.value = _engineSnapshot.value.copy(
-                    statusDetail = "UserService Binder 无效"
-                )
+                setBindingError("Shizuku UserService 返回了无效 Binder，请点击重试。")
                 return
             }
             val svc = ITouchMuxService.Stub.asInterface(binder)
             service = svc
+            reconnectAttempts = 0
             _connectionState.value = ShizukuConnectionState.CONNECTED
             try {
                 svc.registerCallback(serviceCallback)
@@ -193,11 +203,94 @@ object ShizukuController {
             _slotStates.value = List(16) { 0 }
             if (Shizuku.pingBinder() && hasPermission()) {
                 _connectionState.value = ShizukuConnectionState.BINDING
+                _engineSnapshot.value = _engineSnapshot.value.copy(
+                    statusDetail = "Shizuku UserService 已断开，正在重新连接…"
+                )
+                scheduleUserServiceReconnect()
             } else {
-                _connectionState.value = ShizukuConnectionState.SHIZUKU_NOT_RUNNING
+                invalidateBindAttempt()
+                _connectionState.value = if (Shizuku.pingBinder()) {
+                    ShizukuConnectionState.NO_PERMISSION
+                } else {
+                    ShizukuConnectionState.SHIZUKU_NOT_RUNNING
+                }
             }
         }
+
+        override fun onBindingDied(name: ComponentName?) {
+            setBindingError("Android 已结束 Shizuku UserService 绑定，请点击重试。")
+        }
+
+        override fun onNullBinding(name: ComponentName?) {
+            setBindingError("Shizuku UserService 返回空 Binder，请确认应用安装完整后重试。")
+        }
     }
+
+    @Volatile
+    private var reconnectAttempts = 0
+
+    @Synchronized
+    private fun finishBindAttempt() {
+        bindInFlight = false
+        bindAttemptId++
+    }
+
+    @Synchronized
+    private fun invalidateBindAttempt() {
+        bindInFlight = false
+        bindAttemptId++
+    }
+
+    @Synchronized
+    private fun setBindingError(message: String) {
+        service = null
+        bindInFlight = false
+        bindAttemptId++
+        _connectionState.value = ShizukuConnectionState.ERROR
+        _engineSnapshot.value = _engineSnapshot.value.copy(statusDetail = message)
+    }
+
+    @Synchronized
+    private fun failBindAttemptIfCurrent(attemptId: Int, message: String): Boolean {
+        if (bindAttemptId != attemptId || !bindInFlight) return false
+        setBindingError(message)
+        return true
+    }
+
+    @Synchronized
+    private fun scheduleUserServiceReconnect() {
+        if (reconnectAttempts >= 2) {
+            setBindingError("Shizuku UserService 多次断开，请点击重试。")
+            return
+        }
+        reconnectAttempts++
+        bindInFlight = true
+        val reconnectId = ++bindAttemptId
+        scope.launch {
+            delay(USER_SERVICE_RECONNECT_DELAY_MS)
+            if (bindAttemptId != reconnectId || service?.asBinder()?.pingBinder() == true) return@launch
+            if (!Shizuku.pingBinder() || !hasPermission()) {
+                bindInFlight = false
+                evaluateShizukuState()
+                return@launch
+            }
+            val args = boundArgs
+            if (args != null) {
+                try {
+                    Shizuku.unbindUserService(args, userServiceConnection, true)
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Could not clear stale UserService binding before reconnect.", t)
+                }
+            }
+            if (!prepareReconnect(reconnectId)) return@launch
+            bindInFlight = false
+            bindUserService()
+        }
+    }
+
+    @Synchronized
+    private fun prepareReconnect(reconnectId: Int): Boolean =
+        bindAttemptId == reconnectId && service?.asBinder()?.pingBinder() != true
 
     fun initialize(context: Context) {
         if (appContext == null) {
@@ -212,6 +305,7 @@ object ShizukuController {
         evaluateShizukuState()
     }
 
+    @Synchronized
     fun evaluateShizukuState() {
         val binderAlive = try {
             Shizuku.pingBinder()
@@ -219,6 +313,7 @@ object ShizukuController {
             false
         }
         if (!binderAlive) {
+            invalidateBindAttempt()
             service = null
             _slotStates.value = List(16) { 0 }
             _connectionState.value = ShizukuConnectionState.SHIZUKU_NOT_RUNNING
@@ -226,6 +321,8 @@ object ShizukuController {
             return
         }
         if (!hasPermission()) {
+            invalidateBindAttempt()
+            service = null
             _connectionState.value = ShizukuConnectionState.NO_PERMISSION
             _engineSnapshot.value = EngineSnapshot(statusDetail = "Shizuku 已运行，等待授权")
             return
@@ -267,6 +364,7 @@ object ShizukuController {
         }
     }
 
+    @Synchronized
     fun bindUserService() {
         val ctx = appContext ?: return
         if (!Shizuku.pingBinder() || !hasPermission()) {
@@ -277,7 +375,13 @@ object ShizukuController {
             _connectionState.value = ShizukuConnectionState.CONNECTED
             return
         }
+        if (bindInFlight) return
+        bindInFlight = true
+        val attemptId = ++bindAttemptId
         _connectionState.value = ShizukuConnectionState.BINDING
+        _engineSnapshot.value = _engineSnapshot.value.copy(
+            statusDetail = "正在启动 Shizuku UserService…"
+        )
         val args = boundArgs ?: Shizuku.UserServiceArgs(
             ComponentName(ctx.packageName, TouchMuxUserService::class.java.name)
         )
@@ -289,12 +393,24 @@ object ShizukuController {
 
         try {
             Shizuku.bindUserService(args, userServiceConnection)
+            scope.launch {
+                delay(USER_SERVICE_BIND_TIMEOUT_MS)
+                if (failBindAttemptIfCurrent(
+                        attemptId,
+                        "连接 Shizuku UserService 超时，请确认 Shizuku 中已授权本应用，然后点击重试。"
+                    )
+                ) {
+                    Log.e(TAG, "Timed out waiting for Shizuku UserService connection callback.")
+                    try {
+                        Shizuku.unbindUserService(args, userServiceConnection, true)
+                    } catch (t: Throwable) {
+                        Log.w(TAG, "Could not clear timed-out UserService binding.", t)
+                    }
+                }
+            }
         } catch (t: Throwable) {
             Log.e(TAG, "bindUserService error", t)
-            _connectionState.value = ShizukuConnectionState.ERROR
-            _engineSnapshot.value = _engineSnapshot.value.copy(
-                statusDetail = "绑定 UserService 失败: ${t.message}"
-            )
+            setBindingError("绑定 Shizuku UserService 失败: ${t.message ?: t.javaClass.simpleName}")
         }
     }
 
@@ -703,6 +819,7 @@ object ShizukuController {
     }
 
     fun unbindUserService() {
+        invalidateBindAttempt()
         val args = boundArgs ?: return
         try {
             service?.shutdownEngine()
