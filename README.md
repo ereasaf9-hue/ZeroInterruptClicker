@@ -48,8 +48,7 @@ flowchart LR
 - **前置权限与建议配置**：
   1. 悬浮窗显示权限（`SYSTEM_ALERT_WINDOW`）；
   2. 已安装并激活 **Shizuku**（无线调试 / ADB 模式或 Root 模式均可），并对本应用授权；
-     - 本应用会在启动时申请系统运行时权限 `moe.shizuku.manager.permission.API_V23`（Shizuku 服务端校验每个特权调用时都会检查它，**仅在清单中声明是不够的**）；
-     - 在 Shizuku 管理器的「使用 Shizuku 的应用」中开启本应用（通过该弹窗确认后，服务端会同时下发 API_V23 运行时权限）；
+     - 在本应用的 Shizuku 连接卡片点击「授权连接」，并在 Shizuku 管理器弹窗中允许本应用；授权通过 Shizuku API 请求和结果回调处理，不需要在 Android 系统设置中单独申请 API_V23 运行时权限；
      - 若连接卡片长时间停留在「连接中」，请点按卡片上的「重新连接」——应用会向 Shizuku 服务端申请**全新**的 UserService 进程（版本号自增，服务端会销毁旧进程后重建），从而摆脱残留的失效绑定；
   3. Android 13+ 建议开启通知权限（`POST_NOTIFICATIONS`）以稳定显示前台服务通知；
   4. 建议忽略电池优化（`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`）设为「无限制」，避免后台保活与定时触发被系统省电策略限制。

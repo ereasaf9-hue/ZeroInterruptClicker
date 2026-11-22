@@ -12,7 +12,6 @@ import android.util.Log
 import android.view.Display
 import android.view.Surface
 import android.view.WindowManager
-import androidx.core.content.ContextCompat
 import com.zerointerrupt.clicker.BuildConfig
 import com.zerointerrupt.clicker.ITouchMuxCallback
 import com.zerointerrupt.clicker.ITouchMuxService
@@ -39,10 +38,10 @@ enum class ShizukuConnectionState {
     /** Shizuku server is not running / not reachable. */
     SHIZUKU_NOT_RUNNING,
 
-    /** The Shizuku API runtime permission (API_V23) is not granted to this app. */
+    /** Shizuku is running, but this app has not yet received Shizuku API permission. */
     NO_PERMISSION,
 
-    /** API_V23 is granted, but Shizuku still refuses to serve this app. */
+    /** A Shizuku authorization request is pending or was denied. */
     NEEDS_SHIZUKU_AUTH,
 
     /** The privileged UserService is being bound. */
@@ -68,7 +67,6 @@ data class EngineSnapshot(
     val uid: Int = -1,
     val pid: Int = -1,
     val nativeProbeError: String = "",
-    val apiPermissionGranted: Boolean = false,
     val bindRetryCount: Int = 0
 )
 
@@ -84,18 +82,6 @@ data class DisplayScreenMetrics(
 object ShizukuController {
     private const val TAG = "ShizukuController"
     const val REQUEST_CODE_SHIZUKU = 10042
-
-    /**
-     * Runtime permission declared by the Shizuku manager app.
-     *
-     * The Shizuku server validates every API call with
-     * `checkPermission(API_V23, pid, uid)`, so the app must hold this permission at
-     * runtime level - declaring it in the manifest is *not* enough. Toggling the app
-     * inside the Shizuku manager only flips a server side flag and never grants this
-     * runtime permission, which is exactly why an app could look "connected" inside
-     * the Shizuku app while every single Shizuku call kept failing here.
-     */
-    const val PERMISSION_API_V23 = "moe.shizuku.manager.permission.API_V23"
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -407,39 +393,6 @@ object ShizukuController {
     }
 
     /**
-     * True when the Shizuku API runtime permission (API_V23) is granted to this app.
-     *
-     * The Shizuku server rejects every privileged call of an app whose UID does not
-     * hold this permission, so it has to be verified locally as well - the Shizuku
-     * manager UI only flips a server side flag and never grants it.
-     */
-    fun hasApiPermission(): Boolean {
-        val ctx = appContext ?: return false
-        return try {
-            ContextCompat.checkSelfPermission(ctx, PERMISSION_API_V23) ==
-                PackageManager.PERMISSION_GRANTED
-        } catch (_: Throwable) {
-            false
-        }
-    }
-
-    /**
-     * Result of the Android runtime permission dialog for API_V23.
-     */
-    fun onApiPermissionResult(granted: Boolean) {
-        if (granted) {
-            evaluateShizukuState()
-            requestPermission()
-        } else {
-            _connectionState.value = ShizukuConnectionState.NO_PERMISSION
-            _engineSnapshot.value = _engineSnapshot.value.copy(
-                statusDetail = "未授予 Shizuku API 权限（API_V23），请在系统设置中手动开启后重试",
-                apiPermissionGranted = false
-            )
-        }
-    }
-
-    /**
      * Drops the current binding and asks the Shizuku server for a brand new
      * UserService process. Used by the manual "retry" action.
      */
@@ -475,23 +428,13 @@ object ShizukuController {
             _engineSnapshot.value = EngineSnapshot(statusDetail = "请先启动 Shizuku 服务")
             return
         }
-        val apiPermission = hasApiPermission()
         val shizukuPermission = hasPermission()
-        if (!shizukuPermission || !apiPermission) {
+        if (!shizukuPermission) {
             invalidateBindAttempt()
             service = null
-            _connectionState.value = if (!apiPermission) {
-                ShizukuConnectionState.NO_PERMISSION
-            } else {
-                ShizukuConnectionState.NEEDS_SHIZUKU_AUTH
-            }
+            _connectionState.value = ShizukuConnectionState.NO_PERMISSION
             _engineSnapshot.value = EngineSnapshot(
-                statusDetail = if (!apiPermission) {
-                    "缺少 Shizuku API 权限（API_V23），请点击「授予权限」"
-                } else {
-                    "Shizuku 已运行，等待授权（点击「授权连接」）"
-                },
-                apiPermissionGranted = apiPermission
+                statusDetail = "Shizuku 已运行，请点击「授权连接」并在 Shizuku 弹窗中允许本应用"
             )
             return
         }
@@ -520,21 +463,13 @@ object ShizukuController {
                 _engineSnapshot.value = _engineSnapshot.value.copy(statusDetail = "请先启动 Shizuku 服务")
                 return
             }
-            if (!hasApiPermission()) {
-                _connectionState.value = ShizukuConnectionState.NO_PERMISSION
-                _engineSnapshot.value = _engineSnapshot.value.copy(
-                    statusDetail = "缺少 Shizuku API 权限（API_V23），请先授予系统权限",
-                    apiPermissionGranted = false
-                )
-            }
             if (hasPermission()) {
                 autoBindRetries = 0
                 bindUserService()
                 return
             }
-            // Asking the Shizuku manager for permission also grants the API_V23
-            // runtime permission on the server side, so it is safe (and required) to
-            // request it even when the local runtime permission is still missing.
+            // Shizuku API permission is requested through Shizuku itself, not through
+            // Android's ActivityResultContracts.RequestPermission runtime flow.
             if (!permissionRequestPending) {
                 permissionRequestPending = true
                 Shizuku.requestPermission(REQUEST_CODE_SHIZUKU)
@@ -550,8 +485,7 @@ object ShizukuController {
             }
             _connectionState.value = ShizukuConnectionState.NEEDS_SHIZUKU_AUTH
             _engineSnapshot.value = _engineSnapshot.value.copy(
-                statusDetail = "正在等待 Shizuku 授权…",
-                apiPermissionGranted = true
+                statusDetail = "正在等待 Shizuku 授权…"
             )
         } catch (t: Throwable) {
             _connectionState.value = ShizukuConnectionState.ERROR
@@ -595,7 +529,6 @@ object ShizukuController {
         _connectionState.value = ShizukuConnectionState.BINDING
         _engineSnapshot.value = _engineSnapshot.value.copy(
             statusDetail = "正在启动 Shizuku UserService…",
-            apiPermissionGranted = hasApiPermission(),
             bindRetryCount = autoBindRetries
         )
         if (forceFreshService) {
@@ -684,7 +617,6 @@ object ShizukuController {
                     uid = obj.optInt("uid", -1),
                     pid = obj.optInt("pid", -1),
                     nativeProbeError = probeErr,
-                    apiPermissionGranted = hasApiPermission(),
                     bindRetryCount = autoBindRetries
                 )
             } catch (t: Throwable) {
