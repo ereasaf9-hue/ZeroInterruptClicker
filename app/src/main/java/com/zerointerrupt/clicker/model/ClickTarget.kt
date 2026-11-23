@@ -198,6 +198,7 @@ data class ClickTarget(
         const val MIN_PRESS_MS = 8L
         const val MAX_PRESS_MS = 30_000L
         const val DEFAULT_PRESS_DURATION_MS = 25L
+        const val DEFAULT_HOLD_DURATION_MS = 500L
 
         const val MIN_SWIPE_MS = 8L
         const val MAX_SWIPE_MS = 15_000L
@@ -213,6 +214,14 @@ data class ClickTarget(
 
         const val SEAMLESS_HOLD_GAP_MS = 80L
         const val SEAMLESS_HOLD_DIST_PX = 20f
+
+        /** Converts legacy HOLD entries that inherited the short TAP default into a real long press. */
+        fun normalizePressDuration(actionType: ActionType, pressDurationMs: Long): Long =
+            if (actionType == ActionType.HOLD && pressDurationMs == DEFAULT_PRESS_DURATION_MS) {
+                DEFAULT_HOLD_DURATION_MS
+            } else {
+                pressDurationMs
+            }
 
         fun defaultRepeatFor(executionMode: ExecutionMode): Int =
             if (executionMode == ExecutionMode.CONCURRENT) 0 else 1
@@ -462,8 +471,11 @@ object ClickConfigStore {
                 normY = obj.optDouble("normY", -1.0).toFloat(),
                 intervalMs = obj.optLong("intervalMs", ClickTarget.DEFAULT_INTERVAL_MS)
                     .coerceIn(ClickTarget.MIN_STAGE_GAP_MS, ClickTarget.MAX_INTERVAL_MS),
-                pressDurationMs = obj.optLong("pressDurationMs", ClickTarget.DEFAULT_PRESS_DURATION_MS)
-                    .coerceIn(ClickTarget.MIN_PRESS_MS, ClickTarget.MAX_PRESS_MS),
+                pressDurationMs = ClickTarget.normalizePressDuration(
+                    act,
+                    obj.optLong("pressDurationMs", ClickTarget.DEFAULT_PRESS_DURATION_MS)
+                        .coerceIn(ClickTarget.MIN_PRESS_MS, ClickTarget.MAX_PRESS_MS)
+                ),
                 microJitter = obj.optBoolean("microJitter", true),
                 enabled = obj.optBoolean("enabled", true),
                 actionType = act,
@@ -938,6 +950,7 @@ object ClickConfigStore {
 
         fun resolveSingle(src: ClickTarget): ClickTarget {
             val copy = src.copy()
+            copy.pressDurationMs = ClickTarget.normalizePressDuration(copy.actionType, copy.pressDurationMs)
             copy.remapToScreen(screenW, screenH)
             return if (copy.actionType == ActionType.TAP) {
                 copy.copy(intervalMs = globalIntervalMs, pressDurationMs = globalPressMs)
@@ -1164,7 +1177,9 @@ object ClickConfigStore {
             if (target.actionType == ActionType.TAP) {
                 target.copy(intervalMs = intervalMs, pressDurationMs = pressMs)
             } else {
-                target.copy()
+                target.copy(
+                    pressDurationMs = ClickTarget.normalizePressDuration(target.actionType, target.pressDurationMs)
+                )
             }
         }
     }

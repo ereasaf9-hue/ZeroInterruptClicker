@@ -1486,7 +1486,12 @@ fun TargetEditDialog(
             (initial?.intervalMs ?: if (initial?.actionType == ActionType.SUB_PRESET) 0L else defaultIntervalMs).toString()
         )
     }
-    var pressText by remember { mutableStateOf((initial?.pressDurationMs ?: defaultPressMs).toString()) }
+    var pressText by remember {
+        val duration = initial?.let { ClickTarget.normalizePressDuration(it.actionType, it.pressDurationMs) }
+            ?: defaultPressMs
+        mutableStateOf(duration.toString())
+    }
+    var pressWasEdited by remember { mutableStateOf(false) }
     var swipeDurText by remember { mutableStateOf((initial?.swipeDurationMs ?: ClickTarget.DEFAULT_SWIPE_DURATION_MS).toString()) }
     var repeatText by remember {
         val defaultRep = initial?.repeatCount ?: ClickTarget.defaultRepeatFor(executionMode)
@@ -1550,6 +1555,9 @@ fun TargetEditDialog(
                         },
                         selectedValue = actionType,
                         onSelect = {
+                            if (it == ActionType.HOLD && actionType != ActionType.HOLD && !pressWasEdited) {
+                                pressText = ClickTarget.DEFAULT_HOLD_DURATION_MS.toString()
+                            }
                             actionType = it
                             lastGestureType = it
                         },
@@ -1764,7 +1772,10 @@ fun TargetEditDialog(
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedTextField(
                                 value = pressText,
-                                onValueChange = { pressText = it.filter(Char::isDigit).take(5) },
+                                onValueChange = {
+                                    pressText = it.filter(Char::isDigit).take(5)
+                                    pressWasEdited = true
+                                },
                                 label = { Text("Basılı tutma süresi (ms)") },
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -1779,6 +1790,11 @@ fun TargetEditDialog(
                                 modifier = Modifier.weight(1f)
                             )
                         }
+                        Text(
+                            text = "Varsayılan basılı tutma süresi: ${ClickTarget.DEFAULT_HOLD_DURATION_MS} ms",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = cs.onSurfaceVariant
+                        )
                         if (isSequential) {
                             Text(
                                 text = "Bekleme 0 ms (≤80 ms) olduğunda, önceki/sonraki adımla aynı noktadaki uzun basış dokunma kesilmeden devam eder",
