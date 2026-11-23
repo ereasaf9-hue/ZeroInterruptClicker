@@ -492,22 +492,30 @@ fun SetupWizardBottomSheet(
                 onAction = callbacks.onGrantBatteryOpt
             )
 
-            val shizukuConnected = state.connectionState == ShizukuConnectionState.CONNECTED
+            // The wizard step represents "the Shizuku channel is authorized".
+            // BINDING/INITIALIZING are only entered after Shizuku is running and the
+            // permission check passed, so the step can already show its checkmark
+            // while the privileged helper finishes starting. A failure drops back to
+            // ERROR and the checkmark is removed again.
+            val shizukuConnected = state.connectionState == ShizukuConnectionState.CONNECTED ||
+                state.connectionState == ShizukuConnectionState.BINDING ||
+                state.connectionState == ShizukuConnectionState.INITIALIZING
             val shizukuBtn = when (state.connectionState) {
                 ShizukuConnectionState.SHIZUKU_NOT_RUNNING -> "打开 Shizuku"
                 ShizukuConnectionState.NO_PERMISSION -> "授予权限"
                 ShizukuConnectionState.NEEDS_SHIZUKU_AUTH -> "重新请求授权"
                 ShizukuConnectionState.REQUESTING_PERMISSION -> "等待授权…"
                 ShizukuConnectionState.VERIFYING_PERMISSION -> "确认授权…"
-                ShizukuConnectionState.BINDING -> "连接中…"
-                ShizukuConnectionState.INITIALIZING -> "启动服务…"
+                ShizukuConnectionState.BINDING -> "重试连接"
+                ShizukuConnectionState.INITIALIZING -> "重试连接"
                 ShizukuConnectionState.CONNECTED -> "已连接"
                 ShizukuConnectionState.ERROR -> "重试连接"
             }
-            val shizukuSubtitle = if (shizukuConnected) {
-                "已连接"
-            } else {
-                state.connectionDetail
+            val shizukuSubtitle = when (state.connectionState) {
+                ShizukuConnectionState.CONNECTED -> "已连接"
+                ShizukuConnectionState.BINDING -> "已授权，正在启动服务…"
+                ShizukuConnectionState.INITIALIZING -> "已授权，正在完成初始化…"
+                else -> state.connectionDetail
                     .takeIf { it.isNotBlank() }
                     ?: "未连接"
             }

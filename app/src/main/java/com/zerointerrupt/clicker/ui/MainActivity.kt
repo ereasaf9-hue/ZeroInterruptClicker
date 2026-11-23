@@ -997,6 +997,9 @@ class MainActivity : ComponentActivity() {
             ShizukuConnectionState.NEEDS_SHIZUKU_AUTH ->
                 showMessage(scope, "请在弹出的 Shizuku 授权窗口中允许本应用")
             ShizukuConnectionState.ERROR -> showMessage(scope, "正在重新连接 Shizuku…")
+            ShizukuConnectionState.BINDING,
+            ShizukuConnectionState.INITIALIZING ->
+                showMessage(scope, "正在重启 Shizuku 服务连接…")
             else -> Unit
         }
     }

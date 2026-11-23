@@ -68,7 +68,10 @@ enum class ShizukuConnectionState {
     val actionEnabled: Boolean
         get() = when (this) {
             SHIZUKU_NOT_RUNNING, NO_PERMISSION, NEEDS_SHIZUKU_AUTH, ERROR -> true
-            REQUESTING_PERMISSION, VERIFYING_PERMISSION, BINDING, INITIALIZING, CONNECTED -> false
+            // BINDING/INITIALIZING stay tappable so a stalled helper process can be
+            // retried instead of leaving the user stuck on a dead button.
+            BINDING, INITIALIZING -> true
+            REQUESTING_PERMISSION, VERIFYING_PERMISSION, CONNECTED -> false
         }
 }
 
@@ -107,7 +110,8 @@ data class EngineSnapshot(
     val uid: Int = -1,
     val pid: Int = -1,
     val nativeProbeError: String = "",
-    val bindRetryCount: Int = 0
+    val bindRetryCount: Int = 0,
+    val shizukuVersion: Int = -1
 )
 
 data class DisplayScreenMetrics(
@@ -170,7 +174,8 @@ object ShizukuController {
         val connection: ServiceConnection,
         var connected: Boolean = false,
         var initializing: Boolean = false,
-        var timeoutJob: kotlinx.coroutines.Job? = null
+        var timeoutJob: kotlinx.coroutines.Job? = null,
+        var initTimeoutJob: kotlinx.coroutines.Job? = null
     )
 
     /**
@@ -180,12 +185,27 @@ object ShizukuController {
     @Volatile
     private var userServiceVersionCode: Int = BuildConfig.VERSION_CODE
 
+    /**
+     * Some Android 15/16 ROMs (and Shizuku 13.6.0 on HyperOS) fail to start a normal
+     * UserService process. Daemon mode uses a different startup path, so it is tried
+     * once automatically before the connection is reported as failed.
+     */
+    @Volatile
+    private var useDaemonMode = false
+
+    @Volatile
+    private var daemonCompatTried = false
+
     @Volatile
     private var autoBindRetries = 0
 
     // Shizuku may spend about 30s creating the helper process on slower/OEM devices.
     // Leave room for that startup window before retiring the bind attempt.
-    private const val USER_SERVICE_BIND_TIMEOUT_MS = 35_000L
+    private const val USER_SERVICE_BIND_TIMEOUT_MS = 20_000L
+    // Covers the post-connect handshake (registerCallback / settings push). A wedged
+    // helper process can block a Binder call forever, so this must be independent of
+    // the bind timeout that is cancelled once onServiceConnected fires.
+    private const val USER_SERVICE_INIT_TIMEOUT_MS = 12_000L
     private const val USER_SERVICE_RECONNECT_DELAY_MS = 750L
     private const val PERMISSION_REQUEST_TIMEOUT_MS = 20_000L
     private const val PERMISSION_POLL_INTERVAL_MS = 250L
@@ -402,12 +422,12 @@ object ShizukuController {
         return retired
     }
 
-    private fun buildUserServiceArgs(ctx: Context, version: Int): Shizuku.UserServiceArgs =
+    private fun buildUserServiceArgs(ctx: Context, version: Int, daemon: Boolean = false): Shizuku.UserServiceArgs =
         Shizuku.UserServiceArgs(
             ComponentName(ctx.packageName, TouchMuxUserService::class.java.name)
         )
             .tag("${ctx.packageName}.touchmux")
-            .daemon(false)
+            .daemon(daemon)
             .processNameSuffix("touchmux")
             .debuggable(BuildConfig.DEBUG)
             .version(version)
@@ -460,13 +480,41 @@ object ShizukuController {
             handleSessionFailure(generation, "无法监视 Shizuku UserService Binder 生命周期。")
             return
         }
+        // A wedged helper process can block a Binder call indefinitely. The bind
+        // timeout is still armed at this point, but it reports a misleading "no
+        // response" error; this watchdog gives an actionable initialization error.
+        val initTimeout = scope.launch {
+            delay(USER_SERVICE_INIT_TIMEOUT_MS)
+            val stillInitializing = synchronized(lifecycleLock) {
+                val active = currentSession
+                active === session && active.initializing && !active.connected
+            }
+            if (stillInitializing) {
+                Log.w(TAG, "UserService initialization timed out, generation=$generation")
+                handleSessionFailure(
+                    generation,
+                    "Shizuku UserService 初始化超时（${USER_SERVICE_INIT_TIMEOUT_MS / 1000} 秒）。"
+                )
+            }
+        }
+        synchronized(lifecycleLock) {
+            if (currentSession === session && session.initializing && !session.connected) {
+                session.initTimeoutJob = initTimeout
+            } else {
+                initTimeout.cancel()
+            }
+        }
         scope.launch {
+            var step = "registerCallback"
             try {
                 svc.registerCallback(callbackFor(generation))
                 val ctx = appContext
                 if (ctx == null || !isCurrentSession(generation)) return@launch
+                step = "loadSettings"
                 val settings = ClickConfigStore.loadSettings(ctx)
+                step = "setVolumeKeyControlEnabled"
                 svc.setVolumeKeyControlEnabled(settings.volumeKeyToggleEnabled)
+                step = "setPreferredBackend"
                 svc.setPreferredBackend(settings.preferredBackend)
                 val initialized = synchronized(lifecycleLock) {
                     val active = currentSession
@@ -477,8 +525,11 @@ object ShizukuController {
                         active.connected = true
                         active.timeoutJob?.cancel()
                         active.timeoutJob = null
+                        active.initTimeoutJob?.cancel()
+                        active.initTimeoutJob = null
                         service = svc
                         autoBindRetries = 0
+                        daemonCompatTried = false
                         setConnectionStateLocked(
                             ShizukuConnectionState.CONNECTED,
                             "Shizuku UserService 已连接并完成初始化。"
@@ -492,8 +543,11 @@ object ShizukuController {
                 }
                 if (initialized) refreshCapabilitiesAsync()
             } catch (t: Throwable) {
-                Log.w(TAG, "Initial UserService configuration failed for generation=$generation", t)
-                handleSessionFailure(generation, "无法向 Shizuku UserService 发送初始化设置。")
+                Log.w(TAG, "Initial UserService configuration failed at step=$step for generation=$generation", t)
+                handleSessionFailure(
+                    generation,
+                    "Shizuku UserService 初始化失败（$step）：${t.message ?: t.javaClass.simpleName}"
+                )
             }
         }
     }
@@ -503,6 +557,7 @@ object ShizukuController {
             val session = currentSession
             if (session == null || session.generation != generation) return
             session.timeoutJob?.cancel()
+            session.initTimeoutJob?.cancel()
             currentSession = null
             generations.invalidate()
             service = null
@@ -629,22 +684,49 @@ object ShizukuController {
     private fun onBindTimeout(generation: Long) {
         Log.w(TAG, "Timed out waiting for Shizuku UserService connection callback, generation=$generation")
         val timeoutDetail = "Shizuku UserService ${USER_SERVICE_BIND_TIMEOUT_MS / 1000} saniyede yanıt vermedi. Shizuku veya cihaz ROM'u servisi başlatmıyor olabilir; Shizuku'yu yeniden başlatıp tekrar deneyin."
+        var retryInCompatMode = false
         val timedOut = synchronized(lifecycleLock) {
             val session = currentSession
             if (session == null || session.generation != generation || session.connected) return
+            session.initTimeoutJob?.cancel()
             currentSession = null
             generations.invalidate()
             service = null
-            setConnectionStateLocked(ShizukuConnectionState.ERROR, timeoutDetail)
-            _engineSnapshot.value = _engineSnapshot.value.copy(
-                statusDetail = timeoutDetail,
-                bindRetryCount = 0
-            )
             autoBindRetries = 0
+            if (!daemonCompatTried) {
+                // First failure: try Shizuku's daemon startup path once. On some
+                // Android 15/16 ROMs the normal UserService process is killed while
+                // the app's Application is being created, but daemon mode survives.
+                daemonCompatTried = true
+                useDaemonMode = true
+                userServiceVersionCode =
+                    if (userServiceVersionCode == Int.MAX_VALUE) BuildConfig.VERSION_CODE
+                    else userServiceVersionCode + 1
+                retryInCompatMode = true
+                val compatDetail = "Shizuku UserService 未在 ${USER_SERVICE_BIND_TIMEOUT_MS / 1000} 秒内启动，正在以兼容模式重试…"
+                setConnectionStateLocked(ShizukuConnectionState.BINDING, compatDetail)
+                _engineSnapshot.value = _engineSnapshot.value.copy(
+                    statusDetail = compatDetail,
+                    bindRetryCount = 0
+                )
+            } else {
+                val version = runCatching { Shizuku.getVersion() }.getOrDefault(-1)
+                val hint = if (version >= 0) "（Shizuku v$version）" else ""
+                val finalDetail = "$timeoutDetail$hint"
+                setConnectionStateLocked(ShizukuConnectionState.ERROR, finalDetail)
+                _engineSnapshot.value = _engineSnapshot.value.copy(
+                    statusDetail = finalDetail,
+                    bindRetryCount = 0,
+                    shizukuVersion = version
+                )
+            }
             session
         }
         // Do not let cleanup block the timeout transition behind a stuck bind call.
         scope.launch { removeUserServiceSafely(timedOut) }
+        if (retryInCompatMode) {
+            scheduleUserServiceBind(forceFreshService = true, delayMs = USER_SERVICE_RECONNECT_DELAY_MS)
+        }
     }
 
     fun initialize(context: Context) {
@@ -682,10 +764,10 @@ object ShizukuController {
      * Invalidates the old callback generation before asking Shizuku for a fresh
      * process. Late callbacks from the old process can no longer change app state.
      */
-    fun forceRebind() {
+    fun forceRebind(allowWhileBusy: Boolean = false) {
         if (refuseRecoveryWhileApiCallIsActive()) return
         val retired = synchronized(lifecycleLock) {
-            if (_connectionStatus.value.state.isBusy) return
+            if (_connectionStatus.value.state.isBusy && !allowWhileBusy) return
             pendingBindJob?.cancel()
             pendingBindJob = null
             pendingBindGeneration = null
@@ -696,6 +778,7 @@ object ShizukuController {
             val old = currentSession
             currentSession = null
             old?.timeoutJob?.cancel()
+            old?.initTimeoutJob?.cancel()
             service = null
             _slotStates.value = List(16) { 0 }
             setConnectionStateLocked(
@@ -707,6 +790,8 @@ object ShizukuController {
         }
         if (retired != null) removeUserServiceSafely(retired)
         autoBindRetries = 0
+        useDaemonMode = false
+        daemonCompatTried = false
         if (!runCatching { Shizuku.pingBinder() && hasPermission() }.getOrDefault(false)) {
             evaluateShizukuState()
             return
@@ -716,6 +801,12 @@ object ShizukuController {
 
     fun evaluateShizukuState() {
         val binderAlive = runCatching { Shizuku.pingBinder() }.getOrDefault(false)
+        if (binderAlive) {
+            val version = runCatching { Shizuku.getVersion() }.getOrDefault(-1)
+            if (_engineSnapshot.value.shizukuVersion != version) {
+                _engineSnapshot.value = _engineSnapshot.value.copy(shizukuVersion = version)
+            }
+        }
         if (!binderAlive) {
             val retired = synchronized(lifecycleLock) {
                 val old = invalidatePendingWorkLocked()
@@ -869,9 +960,11 @@ object ShizukuController {
             ShizukuConnectionState.ERROR -> scope.launch { forceRebind() }
             ShizukuConnectionState.SHIZUKU_NOT_RUNNING -> evaluateShizukuState()
             ShizukuConnectionState.REQUESTING_PERMISSION,
-            ShizukuConnectionState.VERIFYING_PERMISSION,
+            ShizukuConnectionState.VERIFYING_PERMISSION -> Unit
+            // A bind/init that never completes must be escapable: retire the stuck
+            // generation and start a fresh UserService instead of ignoring the tap.
             ShizukuConnectionState.BINDING,
-            ShizukuConnectionState.INITIALIZING,
+            ShizukuConnectionState.INITIALIZING -> scope.launch { forceRebind(allowWhileBusy = true) }
             ShizukuConnectionState.CONNECTED -> Unit
         }
     }
@@ -896,7 +989,7 @@ object ShizukuController {
                 userServiceVersionCode = if (userServiceVersionCode == Int.MAX_VALUE) BuildConfig.VERSION_CODE else userServiceVersionCode + 1
             }
             val generation = generations.issue()
-            val args = buildUserServiceArgs(ctx, userServiceVersionCode)
+            val args = buildUserServiceArgs(ctx, userServiceVersionCode, useDaemonMode)
             val attempt = BindSession(generation, args, newServiceConnection(generation))
             currentSession = attempt
             setConnectionStateLocked(
@@ -947,6 +1040,7 @@ object ShizukuController {
             val old = currentSession
             currentSession = null
             old?.timeoutJob?.cancel()
+            old?.initTimeoutJob?.cancel()
             service = null
             _slotStates.value = List(16) { 0 }
             val nextState = if (!runCatching { Shizuku.pingBinder() }.getOrDefault(false)) {
