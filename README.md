@@ -49,7 +49,7 @@ flowchart LR
   1. 悬浮窗显示权限（`SYSTEM_ALERT_WINDOW`）；
   2. 已安装并激活 **Shizuku**（无线调试 / ADB 模式或 Root 模式均可），并对本应用授权；
      - 在本应用的 Shizuku 连接卡片点击「授权连接」，并在 Shizuku 管理器弹窗中允许本应用；授权通过 Shizuku API 请求和结果回调处理，不需要在 Android 系统设置中单独申请 API_V23 运行时权限；
-     - 若连接卡片长时间停留在「连接中」，请点按卡片上的「重新连接」——应用会向 Shizuku 服务端申请**全新**的 UserService 进程（版本号自增，服务端会销毁旧进程后重建），从而摆脱残留的失效绑定；
+     - 若连接卡片长时间停留在「连接中」，请点按「重新连接」。每次绑定都有独立会话编号，旧 Binder 的迟到回调会被忽略；失败后最多自动重试 4 次。主动重建时会递增 UserService 版本，并按 Shizuku 规定的 AIDL 特殊 transaction 执行 `destroy()` 清理；
   3. Android 13+ 建议开启通知权限（`POST_NOTIFICATIONS`）以稳定显示前台服务通知；
   4. 建议忽略电池优化（`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`）设为「无限制」，避免后台保活与定时触发被系统省电策略限制。
 
@@ -60,6 +60,14 @@ flowchart LR
 ```bash
 # 编译 Debug 与 Release APK
 ./gradlew :app:assembleDebug :app:assembleRelease
+```
+
+### Shizuku 生命周期回归检查
+
+`ITouchMuxService.aidl` 将 `destroy()` 声明为 Shizuku 专用 transaction（AIDL 编号 `16777114`，实际 Binder transaction 为 `16777115`）。这样在解除绑定或服务版本变化时，UserService 会先释放触控抓取、录制、原生引擎和线程，再结束自身进程。纯 JVM 的 session-generation 回归测试可用下列命令运行；完整 Android/AIDL/NDK 检查仍需执行 Debug 构建。
+
+```bash
+./gradlew :app:testDebugUnitTest :app:assembleDebug
 ```
 
 ---

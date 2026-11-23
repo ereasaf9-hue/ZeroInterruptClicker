@@ -43,6 +43,7 @@ class TouchMuxUserService() : ITouchMuxService.Stub() {
 
     private val nativeLoaded = AtomicBoolean(false)
     private val callbacksRegistered = AtomicBoolean(false)
+    private val destroyStarted = AtomicBoolean(false)
     private var nativeLoadError: String? = null
 
     private val currentMode = AtomicInteger(MODE_IDLE)
@@ -898,19 +899,37 @@ class TouchMuxUserService() : ITouchMuxService.Stub() {
     }
 
     override fun destroy() {
-        if (nativeLoaded.get()) {
-            try {
-                nativeCancelRecording()
-            } catch (_: Throwable) {
+        if (!destroyStarted.compareAndSet(false, true)) return
+
+        synchronized(nativeLifecycleLock) {
+            cancelWatchdogTask()
+            clickingActive.set(false)
+            selfCheckConfirmed.set(false)
+            stopFallbackThread()
+
+            if (nativeLoaded.get()) {
+                try {
+                    nativeCancelRecording()
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Touch recording cleanup during destroy failed.", t)
+                }
             }
-        }
-        shutdownEngine()
-        if (nativeLoaded.get()) {
-            try {
-                nativeDestroyEngine()
-            } catch (_: Throwable) {
+
+            // shutdownEngine uses the same monitor; Java monitors are reentrant.
+            shutdownEngine()
+            if (nativeLoaded.get()) {
+                try {
+                    nativeDestroyEngine()
+                } catch (t: Throwable) {
+                    Log.w(TAG, "Native engine destruction failed.", t)
+                }
             }
+            nativeLoaded.set(false)
+            callbacksRegistered.set(false)
+            currentMode.set(MODE_IDLE)
+            statusDetail = "Destroyed."
         }
+
         remoteCallbacks.kill()
         watchdogExecutor.shutdownNow()
         rpcFallbackExecutor.shutdownNow()
