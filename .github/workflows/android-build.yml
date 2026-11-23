@@ -6,6 +6,10 @@ on:
 permissions:
   contents: read
 
+env:
+  ANDROID_HOME: /usr/local/lib/android/sdk
+  ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+
 jobs:
   build:
     name: Test and build release APK
@@ -21,11 +25,12 @@ jobs:
           java-version: '17'
           cache: gradle
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Install Android toolchain
-        run: sdkmanager "platform-tools" "platforms;android-35" "build-tools;36.0.0" "cmake;3.22.1" "ndk;28.2.13676358"
+        run: |
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -n 1)"
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses || true
+          "$SDKMANAGER" --install "platform-tools" "platforms;android-35" "build-tools;36.0.0" "cmake;3.22.1" "ndk;28.2.13676358"
 
       - name: Run unit tests
         run: ./gradlew :app:testDebugUnitTest --no-daemon
