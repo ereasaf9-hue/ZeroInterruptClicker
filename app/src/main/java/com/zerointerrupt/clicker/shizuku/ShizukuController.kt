@@ -7,14 +7,17 @@ import android.content.pm.PackageManager
 import android.hardware.display.DisplayManager
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.Display
 import android.view.Surface
 import android.view.WindowManager
 import com.zerointerrupt.clicker.BuildConfig
+import com.zerointerrupt.clicker.ClickTargetParceled
 import com.zerointerrupt.clicker.ITouchMuxCallback
 import com.zerointerrupt.clicker.ITouchMuxService
+import com.zerointerrupt.clicker.model.ActionType
 import com.zerointerrupt.clicker.model.ClickConfigStore
 import com.zerointerrupt.clicker.model.ClickGlobalSettings
 import com.zerointerrupt.clicker.model.ClickPreset
@@ -32,6 +35,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.random.Random
 import org.json.JSONObject
 import rikka.shizuku.Shizuku
 
@@ -111,7 +115,12 @@ data class EngineSnapshot(
     val pid: Int = -1,
     val nativeProbeError: String = "",
     val bindRetryCount: Int = 0,
-    val shizukuVersion: Int = -1
+    val shizukuVersion: Int = -1,
+    /**
+     * True when the privileged channel is provided by [RemoteTouchInjector] (direct
+     * Binder forwarding through the Shizuku server) instead of a UserService process.
+     */
+    val directInjection: Boolean = false
 )
 
 data class DisplayScreenMetrics(
@@ -168,6 +177,32 @@ object ShizukuController {
     @Volatile
     private var service: ITouchMuxService? = null
 
+    /**
+     * Set when the UserService process cannot be started but Shizuku itself is alive and
+     * authorized, so touch injection is performed directly through the Shizuku server.
+     */
+    @Volatile
+    private var directInjectionActive = false
+
+    /** Coroutine driving the direct-injection tap loop while no UserService exists. */
+    private var directTapLoopJob: kotlinx.coroutines.Job? = null
+
+    /**
+     * Watches a fresh UserService bind: if the helper process has not connected within
+     * [DIRECT_FALLBACK_PROBE_MS] the direct injection channel takes over, so the user
+     * never has to sit through the full bind timeout.
+     */
+    private var directProbeJob: kotlinx.coroutines.Job? = null
+
+    @Volatile
+    private var directTapLoopRunning = false
+    @Volatile
+    private var directLoopTargets: List<ClickTargetParceled> = emptyList()
+    @Volatile
+    private var directLoopSequential = false
+    @Volatile
+    private var directLoopPresetLoopCount = 0
+
     private data class BindSession(
         val generation: Long,
         val args: Shizuku.UserServiceArgs,
@@ -210,6 +245,11 @@ object ShizukuController {
     private const val PERMISSION_REQUEST_TIMEOUT_MS = 20_000L
     private const val PERMISSION_POLL_INTERVAL_MS = 250L
     private const val USER_SERVICE_STARTUP_DELAY_MS = 2_000L
+    /**
+     * How long a UserService bind is allowed to stay silent before the direct injection
+     * channel takes over. A healthy Shizuku connects in well under a second.
+     */
+    private const val DIRECT_FALLBACK_PROBE_MS = 3_000L
     private const val MAX_AUTO_BIND_RETRIES = 4
     private val BIND_RETRY_DELAYS_MS = longArrayOf(1_500L, 3_000L, 6_000L, 12_000L)
 
@@ -277,6 +317,9 @@ object ShizukuController {
 
     private val binderDeadListener = Shizuku.OnBinderDeadListener {
         Log.w(TAG, "Shizuku binder died; invalidating all UserService sessions.")
+        directInjectionActive = false
+        RemoteTouchInjector.reset()
+        stopDirectClickLoop()
         val retired = synchronized(lifecycleLock) {
             val old = invalidatePendingWorkLocked()
             service = null
@@ -470,6 +513,8 @@ object ShizukuController {
             active
         }
         Log.i(TAG, "UserService connected for $name, generation=${session.generation}")
+        directProbeJob?.cancel()
+        directProbeJob = null
         try {
             binder.linkToDeath({
                 Log.w(TAG, "TouchMuxUserService binder died, generation=$generation")
@@ -588,6 +633,10 @@ object ShizukuController {
     }
 
     private fun scheduleBindRetry(cause: String) {
+        if (tryDirectChannel()) {
+            synchronized(lifecycleLock) { markDirectConnectedLocked() }
+            return
+        }
         var prerequisitesUnavailable = false
         val plan = synchronized(lifecycleLock) {
             if (!runCatching { Shizuku.pingBinder() && hasPermission() }.getOrDefault(false)) {
@@ -642,6 +691,10 @@ object ShizukuController {
     }
 
     private fun scheduleUserServiceBind(forceFreshService: Boolean = false, delayMs: Long = USER_SERVICE_STARTUP_DELAY_MS) {
+        if (directInjectionActive) {
+            synchronized(lifecycleLock) { markDirectConnectedLocked() }
+            return
+        }
         val generation = synchronized(lifecycleLock) {
             if (service?.asBinder()?.let { runCatching { it.pingBinder() }.getOrDefault(false) } == true) {
                 setConnectionStateLocked(ShizukuConnectionState.CONNECTED, "Shizuku UserService 已连接并就绪。")
@@ -684,7 +737,6 @@ object ShizukuController {
     private fun onBindTimeout(generation: Long) {
         Log.w(TAG, "Timed out waiting for Shizuku UserService connection callback, generation=$generation")
         val timeoutDetail = "Shizuku UserService ${USER_SERVICE_BIND_TIMEOUT_MS / 1000} saniyede yanıt vermedi. Shizuku veya cihaz ROM'u servisi başlatmıyor olabilir; Shizuku'yu yeniden başlatıp tekrar deneyin."
-        var retryInCompatMode = false
         val timedOut = synchronized(lifecycleLock) {
             val session = currentSession
             if (session == null || session.generation != generation || session.connected) return
@@ -693,8 +745,24 @@ object ShizukuController {
             generations.invalidate()
             service = null
             autoBindRetries = 0
+            session
+        }
+        // Do not let cleanup block the timeout transition behind a stuck bind call.
+        scope.launch { removeUserServiceSafely(timedOut) }
+
+        // Preferred recovery: skip the helper process entirely. If Shizuku is alive and
+        // authorized we can inject through the Shizuku server and the app becomes usable
+        // immediately instead of showing "retry" forever.
+        if (tryDirectChannel()) {
+            synchronized(lifecycleLock) { markDirectConnectedLocked() }
+            Log.i(TAG, "UserService never started; switched to direct injection channel.")
+            return
+        }
+
+        var retryInCompatMode = false
+        synchronized(lifecycleLock) {
             if (!daemonCompatTried) {
-                // First failure: try Shizuku's daemon startup path once. On some
+                // Second chance: try Shizuku's daemon startup path once. On some
                 // Android 15/16 ROMs the normal UserService process is killed while
                 // the app's Application is being created, but daemon mode survives.
                 daemonCompatTried = true
@@ -712,7 +780,11 @@ object ShizukuController {
             } else {
                 val version = runCatching { Shizuku.getVersion() }.getOrDefault(-1)
                 val hint = if (version >= 0) "（Shizuku v$version）" else ""
-                val finalDetail = "$timeoutDetail$hint"
+                val directHint = RemoteTouchInjector.error
+                    .takeIf { it.isNotBlank() }
+                    ?.let { " 直连注入也不可用：$it" }
+                    .orEmpty()
+                val finalDetail = "$timeoutDetail$hint$directHint"
                 setConnectionStateLocked(ShizukuConnectionState.ERROR, finalDetail)
                 _engineSnapshot.value = _engineSnapshot.value.copy(
                     statusDetail = finalDetail,
@@ -720,10 +792,7 @@ object ShizukuController {
                     shizukuVersion = version
                 )
             }
-            session
         }
-        // Do not let cleanup block the timeout transition behind a stuck bind call.
-        scope.launch { removeUserServiceSafely(timedOut) }
         if (retryInCompatMode) {
             scheduleUserServiceBind(forceFreshService = true, delayMs = USER_SERVICE_RECONNECT_DELAY_MS)
         }
@@ -792,6 +861,11 @@ object ShizukuController {
         autoBindRetries = 0
         useDaemonMode = false
         daemonCompatTried = false
+        // An explicit retry re-attempts the full UserService path; the direct channel is
+        // re-established automatically if the helper process still refuses to start.
+        directInjectionActive = false
+        RemoteTouchInjector.reset()
+        stopDirectClickLoop()
         if (!runCatching { Shizuku.pingBinder() && hasPermission() }.getOrDefault(false)) {
             evaluateShizukuState()
             return
@@ -808,6 +882,9 @@ object ShizukuController {
             }
         }
         if (!binderAlive) {
+            directInjectionActive = false
+            RemoteTouchInjector.reset()
+            stopDirectClickLoop()
             val retired = synchronized(lifecycleLock) {
                 val old = invalidatePendingWorkLocked()
                 service = null
@@ -870,16 +947,28 @@ object ShizukuController {
             return
         }
         clearPendingPermissionRequestAfterGrant()
+        if (directInjectionActive) {
+            // Already running on the direct channel; keep the wizard step completed
+            // instead of bouncing back to "starting service".
+            synchronized(lifecycleLock) { markDirectConnectedLocked() }
+            return
+        }
         val connected = synchronized(lifecycleLock) {
-            val live = service?.asBinder()?.let { runCatching { it.pingBinder() }.getOrDefault(false) } == true
+            val live = isUserServiceLive()
             if (live) setConnectionStateLocked(ShizukuConnectionState.CONNECTED, "Shizuku 服务已连接并就绪。")
             live
         }
         if (connected) {
             refreshCapabilitiesAsync()
-        } else {
-            scheduleUserServiceBind()
+            return
         }
+        // A previous bind already timed out in this process: the ROM is not going to
+        // start the helper process, so switch to direct injection right away.
+        if (daemonCompatTried && tryDirectChannel()) {
+            synchronized(lifecycleLock) { markDirectConnectedLocked() }
+            return
+        }
+        scheduleUserServiceBind()
     }
 
     /** A visible grant wins over the callback/poll and prevents stale timeout state. */
@@ -1023,6 +1112,7 @@ object ShizukuController {
                 }
                 if (stillCurrent) Shizuku.bindUserService(session.args, session.connection)
             }
+            armDirectFallbackProbe()
         } catch (t: Throwable) {
             timeout.cancel()
             Log.e(TAG, "bindUserService failed for generation=${session.generation}", t)
@@ -1057,7 +1147,72 @@ object ShizukuController {
         if (retired != null) removeUserServiceSafely(retired)
     }
 
-    fun isServiceConnected(): Boolean = service?.asBinder()?.let { runCatching { it.pingBinder() }.getOrDefault(false) } == true
+    private fun isUserServiceLive(): Boolean =
+        service?.asBinder()?.let { runCatching { it.pingBinder() }.getOrDefault(false) } == true
+
+    /**
+     * A usable privileged channel exists when either the UserService is alive or the
+     * direct Shizuku-forwarded injection channel is available.
+     */
+    fun isServiceConnected(): Boolean = isUserServiceLive() || directInjectionActive
+
+    /**
+     * Tries to bring up the direct injection channel. Returns true when it is usable.
+     * This is the fallback for ROMs where the Shizuku UserService helper process never
+     * starts, which used to leave the app permanently stuck on "starting service".
+     */
+    private fun tryDirectChannel(): Boolean {
+        if (directInjectionActive) return true
+        if (!hasPermission()) return false
+        val ok = runCatching { RemoteTouchInjector.ensureReady() }.getOrDefault(false)
+        if (!ok) {
+            Log.i(TAG, "Direct injection channel unavailable: ${RemoteTouchInjector.error}")
+            return false
+        }
+        directInjectionActive = true
+        return true
+    }
+
+    /**
+     * Arms a short watchdog after a UserService bind starts. If the helper process is
+     * still silent after [DIRECT_FALLBACK_PROBE_MS], retire the bind and continue on the
+     * direct injection channel so the app never appears stuck on "starting service".
+     */
+    private fun armDirectFallbackProbe(delayMs: Long = DIRECT_FALLBACK_PROBE_MS) {
+        if (directInjectionActive) return
+        directProbeJob?.cancel()
+        directProbeJob = scope.launch {
+            delay(delayMs)
+            if (isUserServiceLive() || directInjectionActive) return@launch
+            if (!runCatching { Shizuku.pingBinder() && hasPermission() }.getOrDefault(false)) return@launch
+            if (!tryDirectChannel()) return@launch
+            val retired = synchronized(lifecycleLock) {
+                val old = invalidatePendingWorkLocked()
+                markDirectConnectedLocked()
+                old
+            }
+            if (retired != null) removeUserServiceSafely(retired)
+            Log.i(TAG, "UserService silent for ${delayMs}ms; switched to direct injection channel.")
+        }
+    }
+
+    /**
+     * Publishes the "connected via direct injection" state. The wizard treats this as a
+     * completed step because tapping actually works, just without the helper process.
+     */
+    private fun markDirectConnectedLocked() {        directInjectionActive = true
+        setConnectionStateLocked(
+            ShizukuConnectionState.CONNECTED,
+            "已连接（直连注入）"
+        )
+        _engineSnapshot.value = _engineSnapshot.value.copy(
+            engineMode = TouchMuxUserService.MODE_SHIZUKU_FALLBACK,
+            statusDetail = "已连接（直连注入）",
+            bindRetryCount = 0,
+            directInjection = true,
+            fallbackReady = true
+        )
+    }
 
     fun refreshCapabilitiesAsync() {
         val ctx = appContext ?: return
@@ -1267,11 +1422,12 @@ object ShizukuController {
         presetLoopCount: Int? = null
     ): Int {
         val ctx = appContext ?: return -1
-        val svc = service ?: return -2
+        val svc = service
         return try {
             val snapshot = _engineSnapshot.value
             val settings = ClickConfigStore.loadSettings(ctx)
-            if (settings.selfCheckPassed &&
+            if (svc != null &&
+                settings.selfCheckPassed &&
                 settings.preferredBackend != ClickGlobalSettings.BACKEND_FALLBACK &&
                 snapshot.touchDeviceReadable &&
                 (snapshot.uinputWritable || snapshot.uhidWritable || snapshot.fallbackReady)
@@ -1293,6 +1449,24 @@ object ShizukuController {
                 screenH = metrics.heightPx
             )
             if (parceled.isEmpty()) return -4
+            if (svc == null) {
+                // No UserService process: drive the click loop in-process through the
+                // direct Shizuku injection channel instead of failing outright.
+                if (!directInjectionActive && !tryDirectChannel()) return -2
+                val mode = startDirectClickLoop(
+                    parceled = parceled,
+                    sequential = effectiveMode == ExecutionMode.SEQUENTIAL,
+                    loopCount = effectiveLoopCount,
+                    jitterRadiusPx = settings.jitterRadiusPx
+                )
+                _engineSnapshot.value = _engineSnapshot.value.copy(
+                    engineMode = if (mode > 0) mode else TouchMuxUserService.MODE_IDLE,
+                    preferredBackend = ClickGlobalSettings.BACKEND_FALLBACK,
+                    statusDetail = "已连接（直连注入）",
+                    directInjection = true
+                )
+                return mode
+            }
             val mode = svc.startClicking(
                 parceled,
                 metrics.widthPx,
@@ -1316,13 +1490,117 @@ object ShizukuController {
         }
     }
 
+    /**
+     * In-process replacement for the native click engine, used when the Shizuku
+     * UserService process is unavailable. Taps/swipes/holds are injected directly
+     * through the Shizuku server.
+     */
+    private fun startDirectClickLoop(
+        parceled: List<ClickTargetParceled>,
+        sequential: Boolean,
+        loopCount: Int,
+        jitterRadiusPx: Float
+    ): Int {
+        stopDirectClickLoop()
+        directLoopTargets = parceled
+        directLoopSequential = sequential
+        directLoopPresetLoopCount = loopCount
+        directTapLoopRunning = true
+        directTapLoopJob = scope.launch {
+            try {
+                if (sequential) {
+                    runSequentialDirectLoop(loopCount, jitterRadiusPx)
+                } else {
+                    runConcurrentDirectLoop(jitterRadiusPx)
+                }
+            } catch (t: Throwable) {
+                Log.w(TAG, "Direct click loop ended: ${t.message}")
+            } finally {
+                directTapLoopRunning = false
+                runCatching { RemoteTouchInjector.releaseHold() }
+                _engineSnapshot.value = _engineSnapshot.value.copy(
+                    engineMode = TouchMuxUserService.MODE_IDLE,
+                    statusDetail = "已连接（直连注入）"
+                )
+            }
+        }
+        return TouchMuxUserService.MODE_SHIZUKU_FALLBACK
+    }
+
+    private suspend fun runSequentialDirectLoop(loopCount: Int, jitterRadiusPx: Float) {
+        var loop = 0
+        while (directTapLoopRunning) {
+            val snapshot = directLoopTargets
+            if (snapshot.isEmpty()) break
+            for (target in snapshot) {
+                if (!directTapLoopRunning) return
+                if (!target.enabled) continue
+                val repeats = target.repeatCount.coerceIn(1, 9999)
+                repeat(repeats) {
+                    if (!directTapLoopRunning) return
+                    performDirectAction(target, jitterRadiusPx)
+                    if (target.intervalMs > 0) delay(target.intervalMs)
+                }
+            }
+            loop++
+            if (loopCount > 0 && loop >= loopCount) break
+        }
+    }
+
+    private suspend fun runConcurrentDirectLoop(jitterRadiusPx: Float) {
+        val nextDue = HashMap<Int, Long>()
+        while (directTapLoopRunning) {
+            val snapshot = directLoopTargets
+            if (snapshot.isEmpty()) break
+            val now = SystemClock.uptimeMillis()
+            for (target in snapshot) {
+                if (!directTapLoopRunning) return
+                if (!target.enabled) continue
+                val due = nextDue[target.id] ?: 0L
+                if (now < due) continue
+                performDirectAction(target, jitterRadiusPx)
+                nextDue[target.id] = SystemClock.uptimeMillis() +
+                    target.intervalMs.coerceAtLeast(20L)
+            }
+            delay(5)
+        }
+    }
+
+    private suspend fun performDirectAction(target: ClickTargetParceled, jitterRadiusPx: Float) {
+        val jitter = if (target.microJitter && jitterRadiusPx > 0f) jitterRadiusPx.toInt() else 0
+        val jx = if (jitter > 0) Random.nextInt(-jitter, jitter + 1).toFloat() else 0f
+        val jy = if (jitter > 0) Random.nextInt(-jitter, jitter + 1).toFloat() else 0f
+        when (target.actionType) {
+            ActionType.SWIPE.code -> RemoteTouchInjector.swipe(
+                target.x, target.y, target.endX, target.endY, target.swipeDurationMs
+            )
+            ActionType.HOLD.code -> {
+                RemoteTouchInjector.hold(true, target.x + jx, target.y + jy)
+                delay(target.pressDurationMs.coerceIn(30L, 60_000L))
+                RemoteTouchInjector.releaseHold()
+            }
+            else -> RemoteTouchInjector.tap(
+                target.x + jx,
+                target.y + jy,
+                target.pressDurationMs.coerceIn(10L, 5_000L)
+            )
+        }
+    }
+
+    private fun stopDirectClickLoop() {
+        directTapLoopRunning = false
+        directTapLoopJob?.cancel()
+        directTapLoopJob = null
+        runCatching { RemoteTouchInjector.releaseHold() }
+    }
+
     fun updateTargets(
         targets: List<ClickTarget>? = null,
         executionMode: ExecutionMode? = null,
         presetLoopCount: Int? = null
     ) {
         val ctx = appContext ?: return
-        val svc = service ?: return
+        val svc = service
         try {
             val settings = ClickConfigStore.loadSettings(ctx)
             val metrics = getDisplayScreenMetrics(ctx)
@@ -1339,6 +1617,14 @@ object ShizukuController {
                 screenW = metrics.widthPx,
                 screenH = metrics.heightPx
             )
+            if (svc == null) {
+                if (directTapLoopRunning) {
+                    directLoopTargets = parceled
+                    directLoopSequential = effectiveMode == ExecutionMode.SEQUENTIAL
+                    directLoopPresetLoopCount = effectiveLoopCount
+                }
+                return
+            }
             svc.updateTargets(
                 parceled,
                 metrics.widthPx,
@@ -1364,6 +1650,7 @@ object ShizukuController {
     }
 
     fun stopClicking() {
+        stopDirectClickLoop()
         val svc = service ?: return
         try {
             svc.stopClicking()
@@ -1374,6 +1661,7 @@ object ShizukuController {
     }
 
     fun shutdownEngine() {
+        stopDirectClickLoop()
         val svc = service ?: return
         try {
             svc.shutdownEngine()
@@ -1387,33 +1675,42 @@ object ShizukuController {
     }
 
     fun rpcTap(x: Float, y: Float, durationMs: Long = 25L): Boolean {
-        val svc = service ?: return false
-        return try {
-            svc.injectRpcTap(x, y, durationMs)
-            true
-        } catch (_: Throwable) {
-            false
+        val svc = service
+        if (svc != null) {
+            return try {
+                svc.injectRpcTap(x, y, durationMs)
+                true
+            } catch (_: Throwable) {
+                RemoteTouchInjector.tap(x, y, durationMs)
+            }
         }
+        return RemoteTouchInjector.tap(x, y, durationMs)
     }
 
     fun rpcSwipe(x1: Float, y1: Float, x2: Float, y2: Float, durationMs: Long = 300L): Boolean {
-        val svc = service ?: return false
-        return try {
-            svc.injectRpcSwipe(x1, y1, x2, y2, durationMs)
-            true
-        } catch (_: Throwable) {
-            false
+        val svc = service
+        if (svc != null) {
+            return try {
+                svc.injectRpcSwipe(x1, y1, x2, y2, durationMs)
+                true
+            } catch (_: Throwable) {
+                RemoteTouchInjector.swipe(x1, y1, x2, y2, durationMs)
+            }
         }
+        return RemoteTouchInjector.swipe(x1, y1, x2, y2, durationMs)
     }
 
     fun rpcHold(holdId: Int, down: Boolean, x: Float, y: Float): Boolean {
-        val svc = service ?: return false
-        return try {
-            svc.setRpcHold(holdId, down, x, y)
-            true
-        } catch (_: Throwable) {
-            false
+        val svc = service
+        if (svc != null) {
+            return try {
+                svc.setRpcHold(holdId, down, x, y)
+                true
+            } catch (_: Throwable) {
+                RemoteTouchInjector.hold(down, x, y)
+            }
         }
+        return RemoteTouchInjector.hold(down, x, y)
     }
 
     fun startTouchRecording(excludeLeft: Int, excludeTop: Int, excludeRight: Int, excludeBottom: Int): Boolean {
