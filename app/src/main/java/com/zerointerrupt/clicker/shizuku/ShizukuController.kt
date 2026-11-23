@@ -53,15 +53,15 @@ enum class ShizukuConnectionState {
 
     val displayName: String
         get() = when (this) {
-            SHIZUKU_NOT_RUNNING -> "Shizuku 未运行"
-            NO_PERMISSION -> "需要 Shizuku 授权"
-            NEEDS_SHIZUKU_AUTH -> "授权未完成"
-            REQUESTING_PERMISSION -> "等待授权"
-            VERIFYING_PERMISSION -> "正在确认授权"
-            BINDING -> "正在连接"
-            INITIALIZING -> "正在初始化服务"
-            CONNECTED -> "已连接"
-            ERROR -> "连接失败"
+            SHIZUKU_NOT_RUNNING -> "Shizuku çalışmıyor"
+            NO_PERMISSION -> "Shizuku izni gerekiyor"
+            NEEDS_SHIZUKU_AUTH -> "Yetkilendirme tamamlanmadı"
+            REQUESTING_PERMISSION -> "İzin bekleniyor"
+            VERIFYING_PERMISSION -> "İzin doğrulanıyor"
+            BINDING -> "Bağlanıyor"
+            INITIALIZING -> "Hizmet başlatılıyor"
+            CONNECTED -> "Bağlandı"
+            ERROR -> "Bağlantı başarısız"
         }
 
     val isBusy: Boolean
@@ -111,7 +111,7 @@ data class EngineSnapshot(
     val fallbackReady: Boolean = false,
     val touchDeviceInfo: String = "",
     val absRangeText: String = "",
-    val statusDetail: String = "未连接 Shizuku 服务",
+    val statusDetail: String = "Shizuku hizmetine bağlı değil",
     val uid: Int = -1,
     val pid: Int = -1,
     val nativeProbeError: String = "",
@@ -257,7 +257,7 @@ object ShizukuController {
     private val _connectionStatus = MutableStateFlow(
         ShizukuConnectionStatus(
             ShizukuConnectionState.SHIZUKU_NOT_RUNNING,
-            "请先启动 Shizuku 服务。"
+            "Önce Shizuku hizmetini başlatın."
         )
     )
     val connectionStatus: StateFlow<ShizukuConnectionStatus> = _connectionStatus.asStateFlow()
@@ -331,9 +331,9 @@ object ShizukuController {
             _slotStates.value = List(16) { 0 }
             setConnectionStateLocked(
                 ShizukuConnectionState.SHIZUKU_NOT_RUNNING,
-                "Shizuku 服务已断开，请在管理器中重新启动。"
+                "Shizuku hizmetinin bağlantısı kesildi. Yöneticiden yeniden başlatın."
             )
-            _engineSnapshot.value = EngineSnapshot(statusDetail = "Shizuku 服务已断开，等待重新连接")
+            _engineSnapshot.value = EngineSnapshot(statusDetail = "Shizuku bağlantısı kesildi; yeniden bağlanması bekleniyor")
             old
         }
         if (retired != null) removeUserServiceSafely(retired)
@@ -350,7 +350,7 @@ object ShizukuController {
                 // The Shizuku callback may arrive before the permission state is propagated.
                 setConnectionStateLocked(
                     ShizukuConnectionState.VERIFYING_PERMISSION,
-                    "已授予 Shizuku 权限，正在等待系统确认…"
+                    "Shizuku izni verildi; sistem onayı bekleniyor…"
                 )
                 _engineSnapshot.value = _engineSnapshot.value.copy(
                     statusDetail = "Shizuku izni verildi; izin durumu doğrulanıyor…"
@@ -362,7 +362,7 @@ object ShizukuController {
                 _slotStates.value = List(16) { 0 }
                 setConnectionStateLocked(
                     ShizukuConnectionState.NEEDS_SHIZUKU_AUTH,
-                    "未授予权限。请在 Shizuku 管理器中启用权限后重试。"
+                    "İzin verilmedi. Shizuku yöneticisinden bu uygulama için izni etkinleştirip yeniden deneyin."
                 )
                 _engineSnapshot.value = EngineSnapshot(
                     statusDetail = "Shizuku izni reddedildi. Shizuku yöneticisinden izin verip yeniden deneyin."
@@ -403,7 +403,7 @@ object ShizukuController {
                         granted -> {
                             setConnectionStateLocked(
                                 ShizukuConnectionState.BINDING,
-                                "正在启动 Shizuku UserService…"
+                                "Shizuku UserService başlatılıyor…"
                             )
                             _engineSnapshot.value = _engineSnapshot.value.copy(
                                 statusDetail = "Shizuku izni doğrulandı; UserService başlatılıyor…"
@@ -413,7 +413,7 @@ object ShizukuController {
                         !binderAlive -> {
                             setConnectionStateLocked(
                                 ShizukuConnectionState.SHIZUKU_NOT_RUNNING,
-                                "等待授权时 Shizuku 服务已停止，请重新启动 Shizuku。"
+                                "İzin beklenirken Shizuku hizmeti durdu. Shizuku’yu yeniden başlatın."
                             )
                             _engineSnapshot.value = EngineSnapshot(
                                 statusDetail = "İzin beklenirken Shizuku bağlantısı kesildi. Shizuku’yu başlatıp yeniden deneyin."
@@ -423,7 +423,7 @@ object ShizukuController {
                         else -> {
                             setConnectionStateLocked(
                                 ShizukuConnectionState.NEEDS_SHIZUKU_AUTH,
-                                "无法确认权限，请在 Shizuku 管理器中检查此应用的授权状态。"
+                                "İzin doğrulanamadı. Shizuku yöneticisinden bu uygulamanın izin durumunu kontrol edin."
                             )
                             _engineSnapshot.value = _engineSnapshot.value.copy(
                                 statusDetail = "Shizuku izni 20 saniye içinde doğrulanamadı. Shizuku yöneticisinde bu uygulamanın iznini kontrol edin."
@@ -486,21 +486,21 @@ object ShizukuController {
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
-            handleSessionFailure(generation, "Shizuku UserService 连接已断开。")
+            handleSessionFailure(generation, "Shizuku UserService bağlantısı kesildi.")
         }
 
         override fun onBindingDied(name: ComponentName?) {
-            handleSessionFailure(generation, "Android 已终止 Shizuku UserService 绑定。")
+            handleSessionFailure(generation, "Android, Shizuku UserService bağlantısını sonlandırdı.")
         }
 
         override fun onNullBinding(name: ComponentName?) {
-            handleSessionFailure(generation, "Shizuku UserService 返回了空 Binder。")
+            handleSessionFailure(generation, "Shizuku UserService boş Binder döndürdü.")
         }
     }
 
     private fun handleServiceConnected(generation: Long, name: ComponentName?, binder: IBinder?) {
         if (binder == null || !runCatching { binder.pingBinder() }.getOrDefault(false)) {
-            handleSessionFailure(generation, "Shizuku UserService 返回了无效 Binder。")
+            handleSessionFailure(generation, "Shizuku UserService geçersiz Binder döndürdü.")
             return
         }
         val svc = ITouchMuxService.Stub.asInterface(binder)
@@ -510,10 +510,10 @@ object ShizukuController {
             active.initializing = true
             setConnectionStateLocked(
                 ShizukuConnectionState.INITIALIZING,
-                "UserService 已响应，正在完成初始化…"
+                "UserService yanıt verdi; başlatma tamamlanıyor…"
             )
             _engineSnapshot.value = _engineSnapshot.value.copy(
-                statusDetail = "正在启动 Shizuku UserService…"
+                statusDetail = "Shizuku UserService başlatılıyor…"
             )
             active
         }
@@ -523,11 +523,11 @@ object ShizukuController {
         try {
             binder.linkToDeath({
                 Log.w(TAG, "TouchMuxUserService binder died, generation=$generation")
-                handleSessionFailure(generation, "Shizuku UserService 意外退出。")
+                handleSessionFailure(generation, "Shizuku UserService beklenmedik şekilde kapandı.")
             }, 0)
         } catch (t: Throwable) {
             Log.w(TAG, "Could not attach UserService death recipient.", t)
-            handleSessionFailure(generation, "无法监视 Shizuku UserService Binder 生命周期。")
+            handleSessionFailure(generation, "Shizuku UserService Binder yaşam döngüsü izlenemiyor.")
             return
         }
         // A wedged helper process can block a Binder call indefinitely. The bind
@@ -543,7 +543,7 @@ object ShizukuController {
                 Log.w(TAG, "UserService initialization timed out, generation=$generation")
                 handleSessionFailure(
                     generation,
-                    "Shizuku UserService 初始化超时（${USER_SERVICE_INIT_TIMEOUT_MS / 1000} 秒）。"
+                    "Shizuku UserService başlatma zaman aşımına uğradı (${USER_SERVICE_INIT_TIMEOUT_MS / 1000} saniye)."
                 )
             }
         }
@@ -582,7 +582,7 @@ object ShizukuController {
                         daemonCompatTried = false
                         setConnectionStateLocked(
                             ShizukuConnectionState.CONNECTED,
-                            "Shizuku UserService 已连接并完成初始化。"
+                            "Shizuku UserService bağlandı ve başlatıldı."
                         )
                         _engineSnapshot.value = _engineSnapshot.value.copy(
                             statusDetail = "Shizuku UserService bağlı.",
@@ -596,7 +596,7 @@ object ShizukuController {
                 Log.w(TAG, "Initial UserService configuration failed at step=$step for generation=$generation", t)
                 handleSessionFailure(
                     generation,
-                    "Shizuku UserService 初始化失败（$step）：${t.message ?: t.javaClass.simpleName}"
+                    "Shizuku UserService başlatılamadı ($step): ${t.message ?: t.javaClass.simpleName}"
                 )
             }
         }
@@ -614,7 +614,7 @@ object ShizukuController {
             _slotStates.value = List(16) { 0 }
             setConnectionStateLocked(
                 ShizukuConnectionState.BINDING,
-                "$message 正在准备自动重连…"
+                "$message Otomatik yeniden bağlantı hazırlanıyor…"
             )
             _engineSnapshot.value = _engineSnapshot.value.copy(
                 engineMode = TouchMuxUserService.MODE_IDLE,
@@ -651,7 +651,7 @@ object ShizukuController {
             if (autoBindRetries >= MAX_AUTO_BIND_RETRIES) {
                 setConnectionStateLocked(
                     ShizukuConnectionState.ERROR,
-                    "$cause Shizuku UserService 重试 $MAX_AUTO_BIND_RETRIES 次后仍未连接，请检查 Shizuku 后重试。"
+                    "$cause Shizuku UserService, $MAX_AUTO_BIND_RETRIES denemeden sonra da bağlanmadı. Shizuku’yu kontrol edip yeniden deneyin."
                 )
                 _engineSnapshot.value = _engineSnapshot.value.copy(
                     statusDetail = "$cause Shizuku UserService $MAX_AUTO_BIND_RETRIES denemeden sonra bağlanamadı. Shizuku’yu kontrol edip yeniden deneyin.",
@@ -665,10 +665,10 @@ object ShizukuController {
             pendingBindGeneration = generation
             setConnectionStateLocked(
                 ShizukuConnectionState.BINDING,
-                "$cause 自动重连 ${autoBindRetries}/$MAX_AUTO_BIND_RETRIES。"
+                "$cause Otomatik yeniden bağlanma: ${autoBindRetries}/$MAX_AUTO_BIND_RETRIES."
             )
             _engineSnapshot.value = _engineSnapshot.value.copy(
-                statusDetail = "$cause 自动重连 ${autoBindRetries}/$MAX_AUTO_BIND_RETRIES。",
+                statusDetail = "$cause Otomatik yeniden bağlanma: ${autoBindRetries}/$MAX_AUTO_BIND_RETRIES.",
                 bindRetryCount = autoBindRetries
             )
             generation to delayMs
@@ -702,7 +702,7 @@ object ShizukuController {
         }
         val generation = synchronized(lifecycleLock) {
             if (service?.asBinder()?.let { runCatching { it.pingBinder() }.getOrDefault(false) } == true) {
-                setConnectionStateLocked(ShizukuConnectionState.CONNECTED, "Shizuku UserService 已连接并就绪。")
+                setConnectionStateLocked(ShizukuConnectionState.CONNECTED, "Shizuku UserService bağlandı ve hazır.")
                 return
             }
             if (pendingBindGeneration != null || currentSession != null) return
@@ -710,10 +710,10 @@ object ShizukuController {
             pendingBindGeneration = next
             setConnectionStateLocked(
                 ShizukuConnectionState.BINDING,
-                "正在准备 Shizuku 连接…"
+                "Shizuku bağlantısı hazırlanıyor…"
             )
             _engineSnapshot.value = _engineSnapshot.value.copy(
-                statusDetail = "正在准备 Shizuku 连接…",
+                statusDetail = "Shizuku bağlantısı hazırlanıyor…",
                 bindRetryCount = autoBindRetries
             )
             next
@@ -776,7 +776,7 @@ object ShizukuController {
                     if (userServiceVersionCode == Int.MAX_VALUE) BuildConfig.VERSION_CODE
                     else userServiceVersionCode + 1
                 retryInCompatMode = true
-                val compatDetail = "Shizuku UserService 未在 ${USER_SERVICE_BIND_TIMEOUT_MS / 1000} 秒内启动，正在以兼容模式重试…"
+                val compatDetail = "Shizuku UserService ${USER_SERVICE_BIND_TIMEOUT_MS / 1000} saniye içinde başlamadı; uyumluluk modunda yeniden deneniyor…"
                 setConnectionStateLocked(ShizukuConnectionState.BINDING, compatDetail)
                 _engineSnapshot.value = _engineSnapshot.value.copy(
                     statusDetail = compatDetail,
@@ -787,7 +787,7 @@ object ShizukuController {
                 val hint = if (version >= 0) "（Shizuku v$version）" else ""
                 val directHint = RemoteTouchInjector.error
                     .takeIf { it.isNotBlank() }
-                    ?.let { " 直连注入也不可用：$it" }
+                    ?.let { " Doğrudan enjeksiyon da kullanılamıyor: $it" }
                     .orEmpty()
                 val finalDetail = "$timeoutDetail$hint$directHint"
                 setConnectionStateLocked(ShizukuConnectionState.ERROR, finalDetail)
@@ -821,10 +821,10 @@ object ShizukuController {
                     listenersRegistered = false
                     setConnectionStateLocked(
                         ShizukuConnectionState.ERROR,
-                        "无法注册 Shizuku 事件监听器：${t.message ?: t.javaClass.simpleName}"
+                        "Shizuku olay dinleyicisi kaydedilemedi: ${t.message ?: t.javaClass.simpleName}"
                     )
                     _engineSnapshot.value = _engineSnapshot.value.copy(
-                        statusDetail = "无法注册 Shizuku 事件监听器：${t.message ?: t.javaClass.simpleName}"
+                        statusDetail = "Shizuku olay dinleyicisi kaydedilemedi: ${t.message ?: t.javaClass.simpleName}"
                     )
                 }
                 Log.e(TAG, "Could not register Shizuku listeners.", t)
@@ -857,9 +857,9 @@ object ShizukuController {
             _slotStates.value = List(16) { 0 }
             setConnectionStateLocked(
                 ShizukuConnectionState.BINDING,
-                "正在重新建立 Shizuku 连接…"
+                "Shizuku bağlantısı yeniden kuruluyor…"
             )
-            _engineSnapshot.value = EngineSnapshot(statusDetail = "正在关闭旧的 Shizuku 会话…")
+            _engineSnapshot.value = EngineSnapshot(statusDetail = "Eski Shizuku oturumu kapatılıyor…")
             old
         }
         if (retired != null) removeUserServiceSafely(retired)
@@ -896,9 +896,9 @@ object ShizukuController {
                 _slotStates.value = List(16) { 0 }
                 setConnectionStateLocked(
                     ShizukuConnectionState.SHIZUKU_NOT_RUNNING,
-                    "Shizuku 服务未运行，请在管理器中启动。"
+                    "Shizuku hizmeti çalışmıyor. Yöneticiden başlatın."
                 )
-                _engineSnapshot.value = EngineSnapshot(statusDetail = "请先启动 Shizuku 服务。")
+                _engineSnapshot.value = EngineSnapshot(statusDetail = "Önce Shizuku hizmetini başlatın.")
                 old
             }
             if (retired != null) removeUserServiceSafely(retired)
@@ -910,9 +910,9 @@ object ShizukuController {
                 service = null
                 setConnectionStateLocked(
                     ShizukuConnectionState.ERROR,
-                    "请安装 Shizuku v11 或更高版本；不支持旧版本。"
+                    "Shizuku v11 veya üzerini yükleyin; eski sürümler desteklenmiyor."
                 )
-                _engineSnapshot.value = EngineSnapshot(statusDetail = "此应用需要 Shizuku v11 或更高版本。")
+                _engineSnapshot.value = EngineSnapshot(statusDetail = "Bu uygulama için Shizuku v11 veya üzeri gerekir.")
                 old
             }
             if (retired != null) removeUserServiceSafely(retired)
@@ -927,11 +927,11 @@ object ShizukuController {
                     setConnectionStateLocked(
                         if (verifying) ShizukuConnectionState.VERIFYING_PERMISSION
                         else ShizukuConnectionState.REQUESTING_PERMISSION,
-                        if (verifying) "已授予 Shizuku 权限，正在等待系统确认…"
+                        if (verifying) "Shizuku izni verildi; sistem onayı bekleniyor…"
                         else "Shizuku izin penceresinde seçiminiz bekleniyor…"
                     )
                     _engineSnapshot.value = _engineSnapshot.value.copy(
-                        statusDetail = "正在等待 Shizuku 权限，并重新检查授权状态…"
+                        statusDetail = "Shizuku izni bekleniyor; izin durumu yeniden denetleniyor…"
                     )
                     null
                 } else {
@@ -943,7 +943,7 @@ object ShizukuController {
                         "Shizuku çalışıyor. Devam etmek için bu uygulamaya izin verin."
                     )
                     _engineSnapshot.value = EngineSnapshot(
-                        statusDetail = "Shizuku 正在运行。请授予此应用 Shizuku 权限后重试。"
+                        statusDetail = "Shizuku çalışıyor. Bu uygulamaya Shizuku izni verip yeniden deneyin."
                     )
                     old
                 }
@@ -960,7 +960,7 @@ object ShizukuController {
         }
         val connected = synchronized(lifecycleLock) {
             val live = isUserServiceLive()
-            if (live) setConnectionStateLocked(ShizukuConnectionState.CONNECTED, "Shizuku 服务已连接并就绪。")
+            if (live) setConnectionStateLocked(ShizukuConnectionState.CONNECTED, "Shizuku hizmeti bağlandı ve hazır.")
             live
         }
         if (connected) {
@@ -1001,10 +1001,10 @@ object ShizukuController {
                 synchronized(lifecycleLock) {
                     setConnectionStateLocked(
                         ShizukuConnectionState.ERROR,
-                        "请安装 Shizuku v11 或更高版本；不支持旧版本。"
+                        "Shizuku v11 veya üzerini yükleyin; eski sürümler desteklenmiyor."
                     )
                     _engineSnapshot.value = _engineSnapshot.value.copy(
-                        statusDetail = "请安装 Shizuku v11 或更高版本；不支持旧版本。"
+                        statusDetail = "Shizuku v11 veya üzerini yükleyin; eski sürümler desteklenmiyor."
                     )
                 }
                 return
@@ -1024,7 +1024,7 @@ object ShizukuController {
                     ShizukuConnectionState.REQUESTING_PERMISSION,
                     "Shizuku izin penceresinde seçiminiz bekleniyor…"
                 )
-                _engineSnapshot.value = _engineSnapshot.value.copy(statusDetail = "正在等待 Shizuku 授权…")
+                _engineSnapshot.value = _engineSnapshot.value.copy(statusDetail = "Shizuku izni bekleniyor…")
                 nextCode
             }
             Shizuku.requestPermission(requestCode)
@@ -1036,10 +1036,10 @@ object ShizukuController {
                 permissionWatchJob = null
                 setConnectionStateLocked(
                     ShizukuConnectionState.ERROR,
-                    "无法请求 Shizuku 权限：${t.message ?: t.javaClass.simpleName}"
+                    "Shizuku izni istenemedi: ${t.message ?: t.javaClass.simpleName}"
                 )
                 _engineSnapshot.value = _engineSnapshot.value.copy(
-                    statusDetail = "无法请求 Shizuku 权限：${t.message ?: t.javaClass.simpleName}"
+                    statusDetail = "Shizuku izni istenemedi: ${t.message ?: t.javaClass.simpleName}"
                 )
             }
             Log.e(TAG, "Shizuku permission request failed.", t)
@@ -1076,7 +1076,7 @@ object ShizukuController {
         val session = synchronized(lifecycleLock) {
             if (currentSession != null || pendingBindGeneration != null) return
             if (!forceFreshService && service?.asBinder()?.let { runCatching { it.pingBinder() }.getOrDefault(false) } == true) {
-                setConnectionStateLocked(ShizukuConnectionState.CONNECTED, "Shizuku 服务已连接并就绪。")
+                setConnectionStateLocked(ShizukuConnectionState.CONNECTED, "Shizuku hizmeti bağlandı ve hazır.")
                 return
             }
             if (forceFreshService) {
@@ -1088,10 +1088,10 @@ object ShizukuController {
             currentSession = attempt
             setConnectionStateLocked(
                 ShizukuConnectionState.BINDING,
-                "正在启动 Shizuku UserService…"
+                "Shizuku UserService başlatılıyor…"
             )
             _engineSnapshot.value = _engineSnapshot.value.copy(
-                statusDetail = "正在启动 Shizuku UserService…",
+                statusDetail = "Shizuku UserService başlatılıyor…",
                 bindRetryCount = autoBindRetries
             )
             attempt
@@ -1121,7 +1121,7 @@ object ShizukuController {
         } catch (t: Throwable) {
             timeout.cancel()
             Log.e(TAG, "bindUserService failed for generation=${session.generation}", t)
-            handleSessionFailure(session.generation, "Shizuku UserService 绑定失败：${t.message ?: t.javaClass.simpleName}")
+            handleSessionFailure(session.generation, "Shizuku UserService bağlantısı kurulamadı: ${t.message ?: t.javaClass.simpleName}")
             return
         }
     }
@@ -1146,7 +1146,7 @@ object ShizukuController {
                 ShizukuConnectionState.ERROR to "Shizuku bağlantısı kapatıldı. Yeniden bağlanmak için dokunun."
             }
             setConnectionStateLocked(nextState.first, nextState.second)
-            _engineSnapshot.value = EngineSnapshot(statusDetail = "Shizuku UserService 连接已关闭。")
+            _engineSnapshot.value = EngineSnapshot(statusDetail = "Shizuku UserService bağlantısı kapatıldı.")
             old
         }
         if (retired != null) removeUserServiceSafely(retired)
@@ -1208,11 +1208,11 @@ object ShizukuController {
     private fun markDirectConnectedLocked() {        directInjectionActive = true
         setConnectionStateLocked(
             ShizukuConnectionState.CONNECTED,
-            "已连接（直连注入）"
+            "Bağlandı (doğrudan enjeksiyon)"
         )
         _engineSnapshot.value = _engineSnapshot.value.copy(
             engineMode = TouchMuxUserService.MODE_SHIZUKU_FALLBACK,
-            statusDetail = "已连接（直连注入）",
+            statusDetail = "Bağlandı (doğrudan enjeksiyon)",
             bindRetryCount = 0,
             directInjection = true,
             fallbackReady = true
@@ -1225,23 +1225,23 @@ object ShizukuController {
      * from "the ROM actually lets us inject", which previously failed silently.
      */
     suspend fun runInjectionSelfTest(): String = withContext(Dispatchers.IO) {
-        val ctx = appContext ?: return@withContext "无法获取应用上下文"
+        val ctx = appContext ?: return@withContext "Uygulama bağlamı alınamadı"
         if (!RemoteTouchInjector.isShizukuReady()) {
-            return@withContext "Shizuku 未运行或未授权"
+            return@withContext "Shizuku çalışmıyor veya izin verilmedi"
         }
         if (!RemoteTouchInjector.ensureReady()) {
-            val why = RemoteTouchInjector.error.ifBlank { "未知原因" }
-            return@withContext "注入通道建立失败：$why"
+            val why = RemoteTouchInjector.error.ifBlank { "Bilinmeyen neden" }
+            return@withContext "Enjeksiyon kanalı kurulamadı: $why"
         }
         val dm = ctx.resources.displayMetrics
         val x = dm.widthPixels * 0.5f
         val y = dm.heightPixels * 0.12f
         val ok = RemoteTouchInjector.tap(x, y, 40L)
         if (ok) {
-            "注入成功（事务号 ${RemoteTouchInjector.transactionCode}）"
+            "Enjeksiyon başarılı (işlem kodu ${RemoteTouchInjector.transactionCode})"
         } else {
-            val why = RemoteTouchInjector.error.ifBlank { "未知原因" }
-            "注入被拒绝：$why"
+            val why = RemoteTouchInjector.error.ifBlank { "Bilinmeyen neden" }
+            "Enjeksiyon reddedildi: $why"
         }
     }
 
@@ -1255,7 +1255,7 @@ object ShizukuController {
                 val obj = JSONObject(jsonStr)
                 val touchPath = obj.optString("touchDevicePath", "")
                 val touchName = obj.optString("touchDeviceName", "")
-                val touchInfo = if (touchPath.isNotEmpty()) "$touchPath ($touchName)" else "未检测到可读触控节点"
+                val touchInfo = if (touchPath.isNotEmpty()) "$touchPath ($touchName)" else "Okunabilir dokunmatik düğüm algılanmadı"
                 val detail = obj.optString("statusDetail", "Ready")
                 val uinputOk = obj.optBoolean("uinputWritable", false)
                 val uinputErr = obj.optInt("uinputErrno", -1)
@@ -1493,7 +1493,7 @@ object ShizukuController {
                 _engineSnapshot.value = _engineSnapshot.value.copy(
                     engineMode = if (mode > 0) mode else TouchMuxUserService.MODE_IDLE,
                     preferredBackend = ClickGlobalSettings.BACKEND_FALLBACK,
-                    statusDetail = "已连接（直连注入）",
+                    statusDetail = "Bağlandı (doğrudan enjeksiyon)",
                     directInjection = true
                 )
                 return mode
@@ -1551,7 +1551,7 @@ object ShizukuController {
                 runCatching { RemoteTouchInjector.releaseHold() }
                 _engineSnapshot.value = _engineSnapshot.value.copy(
                     engineMode = TouchMuxUserService.MODE_IDLE,
-                    statusDetail = "已连接（直连注入）"
+                    statusDetail = "Bağlandı (doğrudan enjeksiyon)"
                 )
             }
         }
@@ -1621,7 +1621,7 @@ object ShizukuController {
             )
         }
         if (!ok) {
-            val reason = RemoteTouchInjector.error.ifBlank { "未知原因" }
+            val reason = RemoteTouchInjector.error.ifBlank { "Bilinmeyen neden" }
             Log.w(TAG, "Direct injection rejected: $reason")
             directTapLoopRunning = false
             _injectionErrorEvents.tryEmit(reason)

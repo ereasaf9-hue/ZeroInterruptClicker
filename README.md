@@ -1,70 +1,72 @@
-# 零断触连点器 (ZeroInterruptClicker)
+# Kesintisiz Otomatik Tıklayıcı (ZeroInterruptClicker)
 
-面向 Android 手游与平板多指交互场景设计的 **硬件级零断触自动化连点工具**。基于 **Shizuku 特权服务 + Native C++ `TouchMux` (`/dev/uinput` 多点触控硬件合流)** 架构，结合 **Material Design 3（Material You 动态取色 + 日夜自适应）** 主界面与**三态可折叠贴边悬浮胶囊**，实现左手摇杆持续移动、右手视野滑动与自动连点并发注入互不打断。
+Android oyunlarında ve tabletlerde çok parmaklı etkileşim için tasarlanmış **donanım düzeyinde, dokunma kesintisi oluşturmayan otomatik tıklama aracı**. **Shizuku ayrıcalıklı hizmeti + yerel C++ `TouchMux` (`/dev/uinput` üzerinden çoklu dokunma olaylarını donanım düzeyinde birleştirme)** mimarisini; **Material Design 3 (Material You dinamik renkleri ve gündüz/gece uyarlaması)** arayüzü ve **üç durumlu, katlanabilir, kenara yanaşabilen yüzen kapsülle** bir araya getirir. Böylece sol elle joystick'i hareket ettirirken sağ elle kamera görünümünü kaydırmak ve otomatik tıklamaları aynı anda çalıştırmak birbirini kesintiye uğratmaz.
 
 > [!NOTE]
-> 本项目仅使用标准 Android Accessibility 无关的 Shizuku 跨进程输入合流方案，核心输入合并由 C++ Native 层在 `/dev/input` 与 `/dev/uinput` 节点之间完成；在 `/dev/uinput` 受 SELinux 策略限制的设备上会自动降级为 Shizuku `InputManager` 异步注入通道。
+> Bu proje, Android Accessibility hizmetlerini kullanmaz; bunun yerine Shizuku üzerinden süreçler arası giriş birleştirmesi yapar. Giriş olaylarının birleştirilmesi C++ yerel katmanında `/dev/input` ve `/dev/uinput` aygıt düğümleri arasında gerçekleştirilir. `/dev/uinput` erişiminin SELinux politikalarıyla kısıtlandığı cihazlarda sistem, Shizuku `InputManager` asenkron giriş enjeksiyonu kanalına otomatik olarak geçer.
 
 ---
 
-## 核心特性
+## Öne çıkan özellikler
 
-| 模块 | 核心能力 | 实现机制 |
+| Modül | Temel özellik | Uygulama yöntemi |
 | :--- | :--- | :--- |
-| **硬件级四层零断触注入** | 物理触屏事件与连点锚点事件在虚拟设备硬件层面合并上报，互不抢占 `MotionEvent` 流 | Tier 1 `/dev/uinput` → Tier 2 `/dev/uhid`（10 指固定槽位映射）→ Tier 3 Hybrid → Tier 4 `InputManager` |
-| **5 秒安全自检回滚** | 开启硬件接管前强制 5 秒确认保护；超时或长按音量减 3 秒立即释放 `EVIOCGRAB` | Shizuku UID 2000 守护定时器 + 主界面实时倒计时弹窗 |
-| **高精度连招录制 & 编译** | 0.75px / 4ms (~250Hz) 物理触控采样，3D 时空道格拉斯-普克简化与不断触衔接合并 | `TouchMuxEngine::recordLoop` + `MacroCompiler` + 顺序连招整套遍数 (`presetLoopCount`) |
-| **树形方案管理 & 冻结** | 录制子方案默认冻结并挂于大方案树下（如 `3.1`），默认收起、不占序号、删主删子 | `ClickConfigStore` JSON 持久化 + `PresetTreeFreezeDialog` 树形冻结解冻 |
-| **自由悬停三态悬浮胶囊** | 展开态可自由悬停屏幕任意位置，也可随时贴边收起为 `20dp × 80dp` 迷你边栏 | `ControlBarView` 三态视图 + `OverlayService` 零重排状态刷新 |
-| **经典涟漪触控反馈** | 悬浮胶囊按钮、端盖、微调面板及未锁定锚点全面配备经典水波纹点按反馈 | 原生 `RippleDrawable` + Compose Material 3 Ripple |
+| **Donanım düzeyinde dört katmanlı kesintisiz giriş enjeksiyonu** | Fiziksel dokunmatik ekran olayları ile otomatik tıklama sabitleme noktalarının olayları sanal aygıtın donanım katmanında birleştirilerek bildirilir; `MotionEvent` akışları birbirini engellemez. | Katman 1 `/dev/uinput` → Katman 2 `/dev/uhid` (10 parmak için sabit yuva eşlemesi) → Katman 3 Hybrid → Katman 4 `InputManager` |
+| **5 saniyelik güvenlik denetimi ve geri alma** | Donanım denetimi devralınmadan önce 5 saniyelik zorunlu onay koruması uygulanır. Süre aşımında veya ses kısma tuşuna 3 saniye basıldığında `EVIOCGRAB` hemen serbest bırakılır. | Shizuku UID 2000 zamanlayıcısı ve ana ekranda canlı geri sayım penceresi |
+| **Hassas makro kaydı ve derleme** | Fiziksel dokunuşlar 0,75 px / 4 ms (~250 Hz) hassasiyetle örneklenir; 3B uzay-zaman Douglas–Peucker sadeleştirmesi ve dokunma kesintisi olmadan ardışık tutuşları birleştirme uygulanır. | `TouchMuxEngine::recordLoop` + `MacroCompiler` + ardışık makronun toplam döngü sayısı (`presetLoopCount`) |
+| **Ağaç biçimli plan yönetimi ve dondurma** | Kaydedilen alt planlar varsayılan olarak dondurulur ve üst planın altına eklenir (ör. `3.1`); başlangıçta daraltılmış durumda kalır, sıra numarası tüketmez ve üst plan silindiğinde alt planları da silinir. | `ClickConfigStore` ile JSON kalıcılığı + `PresetTreeFreezeDialog` ile ağaç görünümünde dondurma/dondurmayı kaldırma |
+| **Serbest konumlandırılabilen, üç durumlu yüzen kapsül** | Genişletilmiş kapsül ekranda istenen yere taşınabilir; gerektiğinde kenara yanaştırılarak `20dp × 80dp` boyutunda mini kenar çubuğuna daraltılabilir. | `ControlBarView` üç durumlu görünümü + `OverlayService` yeniden düzenleme yapmadan durum yenileme |
+| **Klasik dalgalanma dokunma geri bildirimi** | Yüzen kapsül düğmeleri, uç kapaklar, ince ayar paneli ve kilidi açık sabitleme noktaları klasik dalgalanma animasyonuyla dokunma geri bildirimi verir. | Yerel `RippleDrawable` + Compose Material 3 Ripple |
 
 ---
 
-## 工作架构
+## Mimari
 
 ```mermaid
 flowchart LR
-    UI["MainActivity / MainScreen\n(Jetpack Compose MD3)"] -->|"配置同步 & 启停控制"| SVC["OverlayService\n(WindowManager 悬浮胶囊 & 锚点)"]
-    SVC -->|"Shizuku UserService AIDL"| MUX["TouchMuxUserService\n(UID 2000 独立进程)"]
-    MUX -->|"/dev/uinput 可写 & 自检通过"| NATIVE["C++ TouchMux Engine\n(EVIOCGRAB + UInput 多槽合并)"]
-    MUX -->|"/dev/uinput 受限降级"| FALLBACK["InputManager 异步注入\n(Fallback 通道)"]
+    UI["MainActivity / MainScreen\n(Jetpack Compose MD3)"] -->|"Yapılandırma eşitleme ve başlatma/durdurma"| SVC["OverlayService\n(Yüzen kapsül ve sabitleme noktaları için WindowManager)"]
+    SVC -->|"Shizuku UserService AIDL"| MUX["TouchMuxUserService\n(Bağımsız UID 2000 süreci)"]
+    MUX -->|"/dev/uinput yazılabilir ve öz denetim başarılı"| NATIVE["C++ TouchMux Engine\n(EVIOCGRAB + UInput çoklu yuva birleştirme)"]
+    MUX -->|"/dev/uinput kısıtlı; geri dönüş"| FALLBACK["InputManager asenkron enjeksiyonu\n(Geri dönüş kanalı)"]
 ```
 
 ---
 
-## 悬浮控制胶囊交互说明
+## Yüzen kontrol kapsülünü kullanma
 
-- **初始精简形态**：支持拖动悬停在屏幕任意位置，显示 **顶部贴边按钮（`<` / `>`）**、**开始/停止连点（▶ / ■）**、**一键切换方案（按未冻结方案编号 `1..N`）** 与 **底部工具展开按钮（`∨`）**。
-- **工具展开形态**：点击底部 `∨` 向下展开 `+`（添加锚点）、`-`（删除选中锚点）、`🔒`（锁定穿透 / 解锁拖动）、`⚙`（单点微调面板）、`●`（连招录制）、`✕`（退出悬浮窗）；再点 `∧` 折回精简态。
-- **贴边迷你胶囊**：点击顶部 `<` / `>`、或开启「启动后贴边收起」后自动靠边并缩为 `20dp × 80dp` 小胶囊，支持拖过屏幕中线自动换边停靠。
-- **顺序连招整套遍数**：在方案页切换为「顺序」模式后可配置 `整套执行遍数`（`0` 为无限循环，`>= 1` 跑完指定遍数后自动停止并重置状态）。
+- **Başlangıçtaki dar görünüm:** Kapsül ekranda serbestçe taşınabilir. Üst kenar düğmesini (`<` / `>`), başlatma/durdurma düğmesini (▶ / ■), dondurulmamış plan numaralarına (`1..N`) göre tek dokunuşla plan değiştirme düğmesini ve alttaki araçları genişletme düğmesini (`∨`) gösterir.
+- **Araçları genişletilmiş görünüm:** Alttaki `∨` düğmesine dokunarak `+` (sabitleme noktası ekle), `-` (seçili sabitleme noktasını sil), `🔒` (dokunmaları geçirerek kilitle / sürüklemeyi aç), `⚙` (tek nokta ince ayar paneli), `●` (makro kaydı) ve `✕` (yüzen pencereden çık) araçlarını açın. `∧` düğmesine dokunarak dar görünüme dönün.
+- **Kenar mini kapsülü:** Üstteki `<` / `>` düğmesine dokunulduğunda veya **Başlatıldığında kenara daralt** seçeneği açıldığında kapsül otomatik olarak kenara yanaşır ve `20dp × 80dp` mini kapsüle küçülür. Ekranın orta çizgisinin diğer tarafına sürüklenirse karşı kenara yanaşır.
+- **Ardışık makronun toplam döngü sayısı:** Plan sayfasında **Ardışık** modu seçildiğinde **Tüm planın çalıştırılma sayısı** ayarlanabilir. `0` sonsuz döngü anlamına gelir; `>= 1` değerinde plan belirtilen sayıda çalıştırılır, ardından otomatik olarak durur ve durumu sıfırlanır.
 
 ---
 
-## 环境要求与构建方法
+## Gereksinimler ve derleme
 
-### 运行环境
-- **系统版本**：Android 8.0 及以上（`minSdk = 26`，`targetSdk = 35`），推荐 Android 12+ 以体验完整 Material You 动态取色。
-- **前置权限与建议配置**：
-  1. 悬浮窗显示权限（`SYSTEM_ALERT_WINDOW`）；
-  2. 已安装并激活 **Shizuku**（无线调试 / ADB 模式或 Root 模式均可），并对本应用授权；
-     - 在本应用的 Shizuku 连接卡片点击「授权连接」，并在 Shizuku 管理器弹窗中允许本应用；授权通过 Shizuku API 请求和结果回调处理，不需要在 Android 系统设置中单独申请 API_V23 运行时权限；
-     - 若连接卡片长时间停留在「连接中」，请点按「重新连接」。每次绑定都有独立会话编号，旧 Binder 的迟到回调会被忽略；失败后最多自动重试 4 次。主动重建时会递增 UserService 版本，并按 Shizuku 规定的 AIDL 特殊 transaction 执行 `destroy()` 清理；
-  3. Android 13+ 建议开启通知权限（`POST_NOTIFICATIONS`）以稳定显示前台服务通知；
-  4. 建议忽略电池优化（`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`）设为「无限制」，避免后台保活与定时触发被系统省电策略限制。
+### Çalışma ortamı
 
-### 本地源码编译
-- **构建工具链**：JDK 17、Gradle `9.3.1`、AGP `9.1.0`、NDK `28.2.13676358`（`arm64-v8a` / `x86_64`）。
-- 克隆仓库并在 `local.properties` 配置本地 `sdk.dir` 后执行：
+- **Android sürümü:** Android 8.0 ve üzeri (`minSdk = 26`, `targetSdk = 35`). Material You dinamik renklerinin tüm özelliklerinden yararlanmak için Android 12 veya üzeri önerilir.
+- **Gerekli izinler ve önerilen ayarlar:**
+  1. Diğer uygulamaların üzerinde görüntüleme izni (`SYSTEM_ALERT_WINDOW`).
+  2. **Shizuku** yüklü ve etkin olmalıdır (Kablosuz hata ayıklama / ADB modu veya Root modu kullanılabilir) ve uygulamaya yetki verilmelidir.
+     - Uygulamadaki Shizuku bağlantı kartında **Bağlantıya izin ver** seçeneğine dokunun ve Shizuku yöneticisinin penceresinde uygulamaya izin verin. Yetkilendirme, Shizuku API istekleri ve sonuç geri çağrılarıyla yürütülür; Android sistem ayarlarından ayrıca API_V23 çalışma zamanı izni istemek gerekmez.
+     - Bağlantı kartı uzun süre **Bağlanıyor** durumunda kalırsa **Yeniden bağlan** düğmesine dokunun. Her bağlama işleminin ayrı bir oturum numarası vardır; eski Binder bağlantılarından geç gelen geri çağrılar yok sayılır. Başarısızlık durumunda en fazla 4 kez otomatik yeniden denenir. Elle yeniden oluşturma sırasında UserService sürümü artırılır ve temizlik için Shizuku'nun belirlediği özel AIDL transaction üzerinden `destroy()` çağrılır.
+  3. Android 13 ve üzeri için ön plan hizmeti bildirimlerinin güvenilir biçimde gösterilmesi amacıyla bildirim izninin (`POST_NOTIFICATIONS`) açılması önerilir.
+  4. Arka planda çalışmanın ve zamanlanmış tetiklemelerin sistemin pil tasarrufu politikalarıyla kısıtlanmaması için pil optimizasyonu muafiyetinin (`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`) **Kısıtlanmamış** olarak ayarlanması önerilir.
+
+### Kaynak kodunu yerel olarak derleme
+
+- **Derleme araç zinciri:** JDK 17, Gradle `9.3.1`, AGP `9.1.0`, NDK `28.2.13676358` (`arm64-v8a` / `x86_64`).
+- Depoyu klonlayın, `local.properties` içinde yerel `sdk.dir` yolunu ayarlayın ve şu komutu çalıştırın:
 
 ```bash
-# 编译 Debug 与 Release APK
+# Debug ve Release APK'lerini derle
 ./gradlew :app:assembleDebug :app:assembleRelease
 ```
 
-### Shizuku 生命周期回归检查
+### Shizuku yaşam döngüsü regresyon denetimi
 
-`ITouchMuxService.aidl` 将 `destroy()` 声明为 Shizuku 专用 transaction（AIDL 编号 `16777114`，实际 Binder transaction 为 `16777115`）。这样在解除绑定或服务版本变化时，UserService 会先释放触控抓取、录制、原生引擎和线程，再结束自身进程。纯 JVM 的 session-generation 回归测试可用下列命令运行；完整 Android/AIDL/NDK 检查仍需执行 Debug 构建。
+`ITouchMuxService.aidl`, `destroy()` metodunu Shizuku'ya özgü bir transaction olarak tanımlar (AIDL numarası `16777114`, gerçek Binder transaction numarası `16777115`). Böylece bağ kesildiğinde veya hizmet sürümü değiştiğinde UserService; dokunma yakalamayı, kaydı, yerel motoru ve iş parçacıklarını önce serbest bırakır, ardından kendi sürecini sonlandırır. Yalnızca JVM kullanan oturum nesli regresyon testleri şu komutla çalıştırılabilir. Tam Android/AIDL/NDK denetimi için ayrıca Debug derlemesi gerekir.
 
 ```bash
 ./gradlew :app:testDebugUnitTest :app:assembleDebug
@@ -72,6 +74,6 @@ flowchart LR
 
 ---
 
-## 免责声明
+## Sorumluluk reddi
 
-本项目仅供个人安卓技术研究、输入子系统学习与无障碍辅助场景使用，请遵守各应用与游戏的用户协议及当地法律法规。
+Bu proje yalnızca kişisel Android teknolojisi araştırmaları, giriş alt sistemini öğrenme ve erişilebilirlik desteği senaryoları içindir. Lütfen her uygulama ve oyunun kullanıcı sözleşmesine ve yerel yasa ve düzenlemelere uyun.

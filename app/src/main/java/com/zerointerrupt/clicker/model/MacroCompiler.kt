@@ -46,8 +46,8 @@ data class MacroCompiledPlan(
 }
 
 /**
- * Compiles raw physical evdev touch strokes into a human-readable
- * SEQUENTIAL parent ClickPreset ("方案 N") referencing CONCURRENT child sub-presets ("方案 N.1", ...).
+ * Ham fiziksel evdev dokunma hareketlerini, CONCURRENT alt ClickPreset'lerine ("Plan N.1", ...) başvuran,
+ * kullanıcı tarafından okunabilir bir SEQUENTIAL üst ClickPreset'ine ("Plan N") derler.
  *
  * - Stationary clicks and long-presses use ActionType.HOLD (retaining independent press & gap timings).
  * - Multi-finger overlapping intervals become CONCURRENT sub-presets inserted as ActionType.SUB_PRESET steps.
@@ -222,7 +222,7 @@ object MacroCompiler {
             }
         }
 
-        val mainName = "方案 $baseNumber"
+        val mainName = "Plan $baseNumber"
         val subPresets = mutableListOf<ClickPreset>()
         val mainTargets = mutableListOf<ClickTarget>()
         var subIndex = 0

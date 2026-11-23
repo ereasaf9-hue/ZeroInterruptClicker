@@ -361,14 +361,14 @@ fun SlotMatrixStrip(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "16-Slot 硬件槽位实时矩阵",
+                text = "16 donanım yuvasının anlık durumu",
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold
             )
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                SlotLegendDot("物理", MaterialTheme.colorScheme.primary)
-                SlotLegendDot("虚拟", MaterialTheme.colorScheme.tertiary)
-                SlotLegendDot("空闲", MaterialTheme.colorScheme.outlineVariant)
+                SlotLegendDot("Fiziksel", MaterialTheme.colorScheme.primary)
+                SlotLegendDot("Sanal", MaterialTheme.colorScheme.tertiary)
+                SlotLegendDot("Boş", MaterialTheme.colorScheme.outlineVariant)
             }
         }
 
@@ -457,7 +457,7 @@ fun SetupWizardBottomSheet(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
-                text = "初始化向导",
+                text = "Kurulum sihirbazı",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold
             )
@@ -465,30 +465,30 @@ fun SetupWizardBottomSheet(
             var stepNum = 1
             WizardStepCard(
                 step = (stepNum++).toString(),
-                title = "悬浮窗权限",
-                subtitle = if (state.overlayPermGranted) "已授权" else "未授权",
+                title = "Kayan pencere izni",
+                subtitle = if (state.overlayPermGranted) "İzin verildi" else "İzin verilmedi",
                 done = state.overlayPermGranted,
-                actionLabel = if (state.overlayPermGranted) "已完成" else "去开启",
+                actionLabel = if (state.overlayPermGranted) "Tamamlandı" else "Aç",
                 onAction = callbacks.onGrantOverlay
             )
 
             if (state.showNotifRow) {
                 WizardStepCard(
                     step = (stepNum++).toString(),
-                    title = "通知权限（建议）",
-                    subtitle = if (state.notifPermGranted) "已授权" else "用于前台保活显示",
+                    title = "Bildirim izni (önerilir)",
+                    subtitle = if (state.notifPermGranted) "İzin verildi" else "Uygulamanın arka planda çalıştığını göstermek için kullanılır",
                     done = state.notifPermGranted,
-                    actionLabel = if (state.notifPermGranted) "已完成" else "授予",
+                    actionLabel = if (state.notifPermGranted) "Tamamlandı" else "İzin ver",
                     onAction = callbacks.onGrantNotif
                 )
             }
 
             WizardStepCard(
                 step = (stepNum++).toString(),
-                title = "省电策略（建议）",
-                subtitle = if (state.batteryOptIgnored) "已忽略电池优化" else "建议设为无限制，防止后台断连",
+                title = "Pil tasarrufu ayarı (önerilir)",
+                subtitle = if (state.batteryOptIgnored) "Pil optimizasyonu devre dışı" else "Arka planda bağlantının kesilmesini önlemek için “Kısıtlanmamış” olarak ayarlayın",
                 done = state.batteryOptIgnored,
-                actionLabel = if (state.batteryOptIgnored) "已完成" else "去设置",
+                actionLabel = if (state.batteryOptIgnored) "Tamamlandı" else "Ayarlara git",
                 onAction = callbacks.onGrantBatteryOpt
             )
 
@@ -497,28 +497,28 @@ fun SetupWizardBottomSheet(
             // fallback, so a checkmark never sits next to a "retry" button.
             val shizukuConnected = state.connectionState == ShizukuConnectionState.CONNECTED
             val shizukuBtn = when (state.connectionState) {
-                ShizukuConnectionState.SHIZUKU_NOT_RUNNING -> "打开 Shizuku"
-                ShizukuConnectionState.NO_PERMISSION -> "授予权限"
-                ShizukuConnectionState.NEEDS_SHIZUKU_AUTH -> "重新请求授权"
-                ShizukuConnectionState.REQUESTING_PERMISSION -> "等待授权…"
-                ShizukuConnectionState.VERIFYING_PERMISSION -> "确认授权…"
-                ShizukuConnectionState.BINDING -> "重试连接"
-                ShizukuConnectionState.INITIALIZING -> "重试连接"
-                ShizukuConnectionState.CONNECTED -> "已连接"
-                ShizukuConnectionState.ERROR -> "重试连接"
+                ShizukuConnectionState.SHIZUKU_NOT_RUNNING -> "Shizuku’yu aç"
+                ShizukuConnectionState.NO_PERMISSION -> "İzin ver"
+                ShizukuConnectionState.NEEDS_SHIZUKU_AUTH -> "Yeniden izin iste"
+                ShizukuConnectionState.REQUESTING_PERMISSION -> "İzin bekleniyor…"
+                ShizukuConnectionState.VERIFYING_PERMISSION -> "İzin doğrulanıyor…"
+                ShizukuConnectionState.BINDING -> "Yeniden bağlan"
+                ShizukuConnectionState.INITIALIZING -> "Yeniden bağlan"
+                ShizukuConnectionState.CONNECTED -> "Bağlandı"
+                ShizukuConnectionState.ERROR -> "Yeniden bağlan"
             }
             val shizukuSubtitle = when (state.connectionState) {
                 ShizukuConnectionState.CONNECTED ->
-                    state.connectionDetail.takeIf { it.contains("直连") } ?: "已连接"
-                ShizukuConnectionState.BINDING -> "已授权，正在启动服务…"
-                ShizukuConnectionState.INITIALIZING -> "已授权，正在完成初始化…"
+                    state.connectionDetail.takeIf { it.contains("doğrudan enjeksiyon") } ?: "Bağlandı"
+                ShizukuConnectionState.BINDING -> "İzin verildi, hizmet başlatılıyor…"
+                ShizukuConnectionState.INITIALIZING -> "İzin verildi, başlatma tamamlanıyor…"
                 else -> state.connectionDetail
                     .takeIf { it.isNotBlank() }
-                    ?: "未连接"
+                    ?: "Bağlı değil"
             }
             WizardStepCard(
                 step = (stepNum++).toString(),
-                title = "Shizuku 通道",
+                title = "Shizuku bağlantısı",
                 subtitle = shizukuSubtitle,
                 done = shizukuConnected,
                 actionLabel = shizukuBtn,
@@ -539,10 +539,10 @@ fun SetupWizardBottomSheet(
                         onClick = callbacks.onTestInjection,
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text("测试注入")
+                        Text("Dokunma enjeksiyonunu test et")
                     }
                     Text(
-                        text = "发送一次真实点击，验证游戏能否收到",
+                        text = "Oyunun dokunmayı algılayıp algılamadığını görmek için ekrana tek bir dokunuş gönderir",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1.6f)
@@ -590,15 +590,15 @@ fun SetupWizardBottomSheet(
                             }
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "5 秒触控校准",
+                                    text = "5 saniyelik dokunmatik kalibrasyonu",
                                     style = MaterialTheme.typography.titleSmall,
                                     fontWeight = FontWeight.SemiBold
                                 )
                                 Text(
                                     text = when {
-                                        testing -> "滑动屏幕测试并点击确认"
-                                        state.selfCheckPassed -> "已通过"
-                                        else -> "待校准"
+                                        testing -> "Ekranda kaydırma testi yapın, ardından onaylayın"
+                                        state.selfCheckPassed -> "Başarılı"
+                                        else -> "Kalibrasyon bekliyor"
                                     },
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -631,13 +631,13 @@ fun SetupWizardBottomSheet(
                                     onClick = callbacks.onRollbackSelfCheck,
                                     modifier = Modifier.weight(1f)
                                 ) {
-                                    Text("立即回滚")
+                                    Text("Hemen geri al")
                                 }
                                 Button(
                                     onClick = callbacks.onConfirmSelfCheck,
                                     modifier = Modifier.weight(1f)
                                 ) {
-                                    Text("触控正常 (${sec}s)")
+                                    Text("Dokunmatik çalışıyor (${sec} sn)")
                                 }
                             }
                         } else {
@@ -650,7 +650,7 @@ fun SetupWizardBottomSheet(
                                         onClick = callbacks.onStartSelfCheck,
                                         modifier = Modifier.weight(1f)
                                     ) {
-                                        Text("重新校准")
+                                        Text("Yeniden kalibre et")
                                     }
                                     Button(
                                         onClick = {
@@ -659,14 +659,14 @@ fun SetupWizardBottomSheet(
                                         },
                                         modifier = Modifier.weight(1f)
                                     ) {
-                                        Text(if (state.overlayVisible) "关闭悬浮窗" else "立即开启悬浮窗")
+                                        Text(if (state.overlayVisible) "Kayan pencereyi kapat" else "Kayan pencereyi şimdi aç")
                                     }
                                 } else {
                                     Button(
                                         onClick = callbacks.onStartSelfCheck,
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
-                                        Text("开始 5 秒触控校准")
+                                        Text("5 saniyelik dokunmatik kalibrasyonunu başlat")
                                     }
                                 }
                             }
@@ -771,7 +771,7 @@ fun PresetNameDialog(
                     value = name,
                     onValueChange = { if (it.length <= 24) name = it },
                     singleLine = true,
-                    label = { Text("方案名称") },
+                    label = { Text("Plan adı") },
                     modifier = Modifier.fillMaxWidth()
                 )
                 if (showCopySwitch) {
@@ -784,7 +784,7 @@ fun PresetNameDialog(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("复制当前方案的手势布局", style = MaterialTheme.typography.bodyMedium)
+                        Text("Geçerli planın hareket düzenini kopyala", style = MaterialTheme.typography.bodyMedium)
                         CheckSwitch(checked = copyCurrent, onCheckedChange = { copyCurrent = it })
                     }
                 }
@@ -797,7 +797,7 @@ fun PresetNameDialog(
             ) { Text(confirmLabel) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
+            TextButton(onClick = onDismiss) { Text("İptal") }
         }
     )
 }
@@ -805,9 +805,9 @@ fun PresetNameDialog(
 @Composable
 fun ImportJsonDialog(
     initialText: String,
-    title: String = "批量导入 JSON",
-    hintText: String = "粘贴导出的批量方案 JSON 或单方案 JSON：",
-    confirmLabel: String = "导入",
+    title: String = "JSON’u toplu içe aktar",
+    hintText: String = "Dışa aktarılan plan paketi JSON’unu veya tek plan JSON’unu yapıştırın:",
+    confirmLabel: String = "İçe aktar",
     onDismiss: () -> Unit,
     onImport: (String) -> Unit
 ) {
@@ -840,7 +840,7 @@ fun ImportJsonDialog(
             ) { Text(confirmLabel) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
+            TextButton(onClick = onDismiss) { Text("İptal") }
         }
     )
 }
@@ -855,11 +855,11 @@ fun ScriptImportDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("脚本新建方案", fontWeight = FontWeight.SemiBold) },
+        title = { Text("Komut dosyasıyla plan oluştur", fontWeight = FontWeight.SemiBold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = "支持极简指令（tap/hold/swipe/wait）或直接粘贴单方案 JSON：",
+                    text = "Basit komutları (tap/hold/swipe/wait) destekler; tek plan JSON’unu da doğrudan yapıştırabilirsiniz:",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -867,7 +867,7 @@ fun ScriptImportDialog(
                     FilterChip(
                         selected = false,
                         onClick = { scriptText = ClickConfigStore.SCRIPT_TEMPLATE_EXAMPLE },
-                        label = { Text("填入脚本示例") }
+                        label = { Text("Örnek komut dosyasını ekle") }
                     )
                 }
                 OutlinedTextField(
@@ -885,10 +885,10 @@ fun ScriptImportDialog(
             Button(
                 onClick = { onImport(scriptText) },
                 enabled = scriptText.isNotBlank()
-            ) { Text("解析并创建") }
+            ) { Text("Ayrıştır ve oluştur") }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
+            TextButton(onClick = onDismiss) { Text("İptal") }
         }
     )
 }
@@ -968,7 +968,7 @@ fun BatchDeletePresetsDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("批量删除方案", fontWeight = FontWeight.SemiBold) },
+        title = { Text("Planları toplu sil", fontWeight = FontWeight.SemiBold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(
@@ -978,9 +978,9 @@ fun BatchDeletePresetsDialog(
                 ) {
                     Text(
                         text = if (cascadeCount > selectedIds.size) {
-                            "已选 ${selectedIds.size} 个大方案（含子方案共 $cascadeCount 个，至少保留 1 个）"
+                            "${selectedIds.size} ana plan seçildi (alt planlarla birlikte toplam $cascadeCount plan; en az 1 plan bırakılmalı)"
                         } else {
-                            "已选 ${selectedIds.size} 个（至少保留 1 个）"
+                            "${selectedIds.size} plan seçildi (en az 1 plan bırakılmalı)"
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = cs.onSurfaceVariant,
@@ -998,7 +998,7 @@ fun BatchDeletePresetsDialog(
                             }
                         }
                     ) {
-                        Text(if (selectedIds.size >= maxDeletable) "清空" else "全选其余")
+                        Text(if (selectedIds.size >= maxDeletable) "Seçimi temizle" else "Kalanların tümünü seç")
                     }
                 }
                 Column(
@@ -1055,10 +1055,10 @@ fun BatchDeletePresetsDialog(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
-                                    val activeTag = if (preset.id == activePresetId) " · 使用中" else ""
-                                    val childTag = if (hasChildren) " · 含${node.children.size}子方案(一并删除)" else ""
+                                    val activeTag = if (preset.id == activePresetId) " · Kullanımda" else ""
+                                    val childTag = if (hasChildren) " · ${node.children.size} alt plan içerir (birlikte silinir)" else ""
                                     Text(
-                                        text = "${preset.targets.size} 步骤 · ${preset.executionMode.label}$activeTag$childTag",
+                                        text = "${preset.targets.size} adım · ${preset.executionMode.label}$activeTag$childTag",
                                         style = MaterialTheme.typography.labelSmall,
                                         color = if (checked && hasChildren) cs.error else cs.onSurfaceVariant,
                                         maxLines = 1,
@@ -1078,7 +1078,7 @@ fun BatchDeletePresetsDialog(
                                     ) {
                                         Icon(
                                             imageVector = if (expanded) Icons.Rounded.KeyboardArrowDown else Icons.Rounded.KeyboardArrowRight,
-                                            contentDescription = if (expanded) "收起子方案" else "展开子方案",
+                                            contentDescription = if (expanded) "Alt planları daralt" else "Alt planları genişlet",
                                             modifier = Modifier.size(18.dp)
                                         )
                                     }
@@ -1115,7 +1115,7 @@ fun BatchDeletePresetsDialog(
                                                 modifier = Modifier.weight(1f)
                                             )
                                             Text(
-                                                text = "${child.targets.size} 步骤${if (checked) " · 随主方案删除" else ""}",
+                                                text = "${child.targets.size} adım${if (checked) " · ana planla birlikte silinir" else ""}",
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = if (checked) cs.error else cs.onSurfaceVariant
                                             )
@@ -1137,11 +1137,11 @@ fun BatchDeletePresetsDialog(
                     contentColor = cs.onError
                 )
             ) {
-                Text("删除 ($cascadeCount)")
+                Text("Sil ($cascadeCount)")
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
+            TextButton(onClick = onDismiss) { Text("İptal") }
         }
     )
 }
@@ -1158,7 +1158,7 @@ fun BatchCreateEmptyPresetsDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("批量添加空方案", fontWeight = FontWeight.SemiBold) },
+        title = { Text("Boş planları toplu ekle", fontWeight = FontWeight.SemiBold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1166,22 +1166,22 @@ fun BatchCreateEmptyPresetsDialog(
                         FilterChip(
                             selected = parsedCount == qty,
                             onClick = { countText = qty.toString() },
-                            label = { Text("${qty}个") }
+                            label = { Text("${qty} adet") }
                         )
                     }
                 }
                 OutlinedTextField(
                     value = countText,
                     onValueChange = { raw -> countText = raw.filter { it.isDigit() }.take(2) },
-                    label = { Text("新增数量 (1~50)") },
+                    label = { Text("Eklenecek adet (1~50)") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth()
                 )
                 ExpressiveConnectedGroup(
                     options = listOf(
-                        ExpressiveOption(ExecutionMode.CONCURRENT, "并发"),
-                        ExpressiveOption(ExecutionMode.SEQUENTIAL, "顺序")
+                        ExpressiveOption(ExecutionMode.CONCURRENT, "Eşzamanlı"),
+                        ExpressiveOption(ExecutionMode.SEQUENTIAL, "Sıralı")
                     ),
                     selectedValue = execMode,
                     onSelect = { execMode = it },
@@ -1191,7 +1191,7 @@ fun BatchCreateEmptyPresetsDialog(
                     val startNum = nextNumber
                     val endNum = nextNumber + parsedCount - 1
                     Text(
-                        text = if (parsedCount == 1) "将新增：方案 $startNum" else "将新增：方案 $startNum ~ 方案 $endNum",
+                        text = if (parsedCount == 1) "Eklenecek plan: $startNum" else "Eklenecek planlar: $startNum–$endNum",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1203,11 +1203,11 @@ fun BatchCreateEmptyPresetsDialog(
                 onClick = { onConfirm(parsedCount.coerceIn(1, 50), execMode) },
                 enabled = parsedCount in 1..50
             ) {
-                Text("创建${if (parsedCount > 0) " ($parsedCount)" else ""}")
+                Text("Oluştur${if (parsedCount > 0) " ($parsedCount)" else ""}")
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
+            TextButton(onClick = onDismiss) { Text("İptal") }
         }
     )
 }
@@ -1236,11 +1236,11 @@ fun PresetTreeFreezeDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("冻结与解冻", fontWeight = FontWeight.SemiBold) },
+        title = { Text("Planları dondur / çöz", fontWeight = FontWeight.SemiBold) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    text = "冻结后的方案在方案页隐藏，悬浮窗切换时自动跳过且不占序号；嵌套子方案默认收起。",
+                    text = "Dondurulan planlar Planlar sekmesinde gizlenir ve kayan pencereyle geçişte atlanır; numara sırasını etkilemez. İç içe alt planlar varsayılan olarak daraltılır.",
                     style = MaterialTheme.typography.bodySmall,
                     color = cs.onSurfaceVariant
                 )
@@ -1250,7 +1250,7 @@ fun PresetTreeFreezeDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "共 ${treeNodes.size} 个主方案 · 已冻结 ${frozenIds.size} 个",
+                        text = "Toplam ${treeNodes.size} ana plan · ${frozenIds.size} dondurulmuş",
                         style = MaterialTheme.typography.bodySmall,
                         color = cs.onSurfaceVariant
                     )
@@ -1263,7 +1263,7 @@ fun PresetTreeFreezeDialog(
                             }
                         }
                     ) {
-                        Text(if (frozenIds.isEmpty()) "冻结子方案" else "全部解冻")
+                        Text(if (frozenIds.isEmpty()) "Alt planları dondur" else "Tümünü çöz")
                     }
                 }
                 LazyColumn(
@@ -1303,7 +1303,7 @@ fun PresetTreeFreezeDialog(
                                         ) {
                                             Icon(
                                                 imageVector = if (expanded) Icons.Rounded.KeyboardArrowDown else Icons.Rounded.KeyboardArrowRight,
-                                                contentDescription = if (expanded) "收起子方案" else "展开子方案",
+                                                contentDescription = if (expanded) "Alt planları daralt" else "Alt planları genişlet",
                                                 modifier = Modifier.size(18.dp),
                                                 tint = cs.onSurfaceVariant
                                             )
@@ -1320,10 +1320,10 @@ fun PresetTreeFreezeDialog(
                                             maxLines = 1,
                                             overflow = TextOverflow.Ellipsis
                                         )
-                                        val activeTag = if (root.id == activePresetId && !rootFrozen) " · 使用中" else ""
-                                        val childTag = if (hasChildren) " · ${node.children.size} 个子方案" else ""
+                                        val activeTag = if (root.id == activePresetId && !rootFrozen) " · Kullanımda" else ""
+                                        val childTag = if (hasChildren) " · ${node.children.size} alt plan" else ""
                                         Text(
-                                            text = "${root.targets.size} 步骤 · ${root.executionMode.label}$activeTag$childTag",
+                                            text = "${root.targets.size} adım · ${root.executionMode.label}$activeTag$childTag",
                                             style = MaterialTheme.typography.labelSmall,
                                             color = cs.onSurfaceVariant,
                                             maxLines = 1,
@@ -1336,7 +1336,7 @@ fun PresetTreeFreezeDialog(
                                         onClick = { toggleFrozen(root.id) },
                                         label = {
                                             Text(
-                                                text = if (rootFrozen) "已冻结" else "正常",
+                                                text = if (rootFrozen) "Donduruldu" else "Normal",
                                                 style = MaterialTheme.typography.labelSmall,
                                                 fontWeight = FontWeight.SemiBold
                                             )
@@ -1377,7 +1377,7 @@ fun PresetTreeFreezeDialog(
                                                 overflow = TextOverflow.Ellipsis
                                             )
                                             Text(
-                                                text = "${child.targets.size} 步骤 · ${child.executionMode.label}",
+                                                text = "${child.targets.size} adım · ${child.executionMode.label}",
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = cs.onSurfaceVariant
                                             )
@@ -1387,7 +1387,7 @@ fun PresetTreeFreezeDialog(
                                             onClick = { toggleFrozen(child.id) },
                                             label = {
                                                 Text(
-                                                    text = if (childFrozen) "已冻结" else "正常",
+                                                    text = if (childFrozen) "Donduruldu" else "Normal",
                                                     style = MaterialTheme.typography.labelSmall,
                                                     fontWeight = FontWeight.SemiBold
                                                 )
@@ -1403,11 +1403,11 @@ fun PresetTreeFreezeDialog(
         },
         confirmButton = {
             Button(onClick = { onConfirm(frozenIds) }) {
-                Text("保存")
+                Text("Kaydet")
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
+            TextButton(onClick = onDismiss) { Text("İptal") }
         }
     )
 }
@@ -1501,7 +1501,7 @@ fun TargetEditDialog(
         onDismissRequest = onDismiss,
         title = {
             Text(
-                text = if (initial != null) "编辑步骤 #${initial.index}" else "新增步骤",
+                text = if (initial != null) "Adım #${initial.index} düzenle" else "Adım ekle",
                 fontWeight = FontWeight.SemiBold
             )
         },
@@ -1514,8 +1514,8 @@ fun TargetEditDialog(
                     val isSubPreset = actionType == ActionType.SUB_PRESET
                     ExpressiveConnectedGroup(
                         options = listOf(
-                            ExpressiveOption(false, "基础手势", R.drawable.ic_touch_app),
-                            ExpressiveOption(true, "并发方案", R.drawable.ic_layers)
+                            ExpressiveOption(false, "Temel hareket", R.drawable.ic_touch_app),
+                            ExpressiveOption(true, "Eşzamanlı plan", R.drawable.ic_layers)
                         ),
                         selectedValue = isSubPreset,
                         onSelect = { chooseSub ->
@@ -1560,7 +1560,7 @@ fun TargetEditDialog(
                         OutlinedTextField(
                             value = xText,
                             onValueChange = { xText = it.filter(Char::isDigit).take(5) },
-                            label = { Text(if (actionType == ActionType.SWIPE) "起点 X" else "X 坐标") },
+                            label = { Text(if (actionType == ActionType.SWIPE) "Başlangıç X" else "X koordinatı") },
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             modifier = Modifier.weight(1f)
@@ -1568,7 +1568,7 @@ fun TargetEditDialog(
                         OutlinedTextField(
                             value = yText,
                             onValueChange = { yText = it.filter(Char::isDigit).take(5) },
-                            label = { Text(if (actionType == ActionType.SWIPE) "起点 Y" else "Y 坐标") },
+                            label = { Text(if (actionType == ActionType.SWIPE) "Başlangıç Y" else "Y koordinatı") },
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             modifier = Modifier.weight(1f)
@@ -1585,7 +1585,7 @@ fun TargetEditDialog(
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Text(
-                                    text = "暂无可引入的「并发」方案，请先创建或将一个方案设为并发模式。",
+                                    text = "Eklenecek eşzamanlı plan yok. Önce bir plan oluşturun veya bir planı eşzamanlı moda alın.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = cs.onErrorContainer,
                                     modifier = Modifier.padding(12.dp)
@@ -1593,7 +1593,7 @@ fun TargetEditDialog(
                             }
                         } else {
                             Text(
-                                text = "选择并发子方案",
+                                text = "Eşzamanlı alt plan seçin",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = cs.onSurfaceVariant
                             )
@@ -1624,7 +1624,7 @@ fun TargetEditDialog(
                                                 modifier = Modifier.weight(1f)
                                             )
                                             Text(
-                                                text = "${candidate.targets.count { it.enabled }} 节点",
+                                                text = "${candidate.targets.count { it.enabled }} hedef",
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = if (picked) cs.onPrimaryContainer else cs.onSurfaceVariant
                                             )
@@ -1634,7 +1634,7 @@ fun TargetEditDialog(
                             }
 
                             Text(
-                                text = "并发运行持续时长",
+                                text = "Eşzamanlı çalışma süresi",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = cs.onSurfaceVariant
                             )
@@ -1644,10 +1644,10 @@ fun TargetEditDialog(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 listOf(
-                                    1000L to "1秒",
-                                    3000L to "3秒",
-                                    5000L to "5秒",
-                                    10000L to "10秒"
+                                    1000L to "1 sn",
+                                    3000L to "3 sn",
+                                    5000L to "5 sn",
+                                    10000L to "10 sn"
                                 ).forEach { (ms, tag) ->
                                     val selected = subDurVal == ms
                                     Surface(
@@ -1674,7 +1674,7 @@ fun TargetEditDialog(
                                 OutlinedTextField(
                                     value = subDurationText,
                                     onValueChange = { subDurationText = it.filter(Char::isDigit).take(6) },
-                                    label = { Text("持续时长(ms)") },
+                                    label = { Text("Süre (ms)") },
                                     singleLine = true,
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                     modifier = Modifier.weight(1f)
@@ -1682,7 +1682,7 @@ fun TargetEditDialog(
                                 OutlinedTextField(
                                     value = intervalText,
                                     onValueChange = { intervalText = it.filter(Char::isDigit).take(5) },
-                                    label = { Text("步后停顿(ms)") },
+                                    label = { Text("Adım sonrası bekleme (ms)") },
                                     singleLine = true,
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                     modifier = Modifier.weight(1f)
@@ -1693,7 +1693,7 @@ fun TargetEditDialog(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                listOf(0L to "无缝(0)", 20L to "20ms", 60L to "60ms", 200L to "200ms").forEach { (ms, tag) ->
+                                listOf(0L to "Kesintisiz (0)", 20L to "20ms", 60L to "60ms", 200L to "200ms").forEach { (ms, tag) ->
                                     val sel = gapVal == ms
                                     Surface(
                                         shape = CircleShape,
@@ -1716,7 +1716,7 @@ fun TargetEditDialog(
                                 }
                             }
                             Text(
-                                text = "设 0ms（≤80ms）时，相邻同坐标持续长按将自动合并保持按住不松手",
+                                text = "0 ms (≤80 ms) ayarlanırsa aynı koordinattaki ardışık uzun basışlar otomatik birleştirilir ve dokunma kesilmez",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = cs.onSurfaceVariant
                             )
@@ -1727,7 +1727,7 @@ fun TargetEditDialog(
                             OutlinedTextField(
                                 value = endXText,
                                 onValueChange = { endXText = it.filter(Char::isDigit).take(5) },
-                                label = { Text("终点 X") },
+                                label = { Text("Bitiş X") },
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 modifier = Modifier.weight(1f)
@@ -1735,7 +1735,7 @@ fun TargetEditDialog(
                             OutlinedTextField(
                                 value = endYText,
                                 onValueChange = { endYText = it.filter(Char::isDigit).take(5) },
-                                label = { Text("终点 Y") },
+                                label = { Text("Bitiş Y") },
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 modifier = Modifier.weight(1f)
@@ -1745,7 +1745,7 @@ fun TargetEditDialog(
                             OutlinedTextField(
                                 value = swipeDurText,
                                 onValueChange = { swipeDurText = it.filter(Char::isDigit).take(5) },
-                                label = { Text("滑动时长(ms)") },
+                                label = { Text("Kaydırma süresi (ms)") },
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 modifier = Modifier.weight(1f)
@@ -1753,7 +1753,7 @@ fun TargetEditDialog(
                             OutlinedTextField(
                                 value = intervalText,
                                 onValueChange = { intervalText = it.filter(Char::isDigit).take(5) },
-                                label = { Text("间隔/步停顿(ms)") },
+                                label = { Text("Aralık / adım beklemesi (ms)") },
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 modifier = Modifier.weight(1f)
@@ -1765,7 +1765,7 @@ fun TargetEditDialog(
                             OutlinedTextField(
                                 value = pressText,
                                 onValueChange = { pressText = it.filter(Char::isDigit).take(5) },
-                                label = { Text("按住时长(ms)") },
+                                label = { Text("Basılı tutma süresi (ms)") },
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 modifier = Modifier.weight(1f)
@@ -1773,7 +1773,7 @@ fun TargetEditDialog(
                             OutlinedTextField(
                                 value = intervalText,
                                 onValueChange = { intervalText = it.filter(Char::isDigit).take(5) },
-                                label = { Text(if (isSequential) "停顿/无缝(ms)" else "循环间隔(ms)") },
+                                label = { Text(if (isSequential) "Bekleme / kesintisiz (ms)" else "Döngü aralığı (ms)") },
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                 modifier = Modifier.weight(1f)
@@ -1781,7 +1781,7 @@ fun TargetEditDialog(
                         }
                         if (isSequential) {
                             Text(
-                                text = "停顿设 0ms（≤80ms）时，可与前后步同点长按自动衔接不断触",
+                                text = "Bekleme 0 ms (≤80 ms) olduğunda, önceki/sonraki adımla aynı noktadaki uzun basış dokunma kesilmeden devam eder",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = cs.onSurfaceVariant
                             )
@@ -1794,7 +1794,7 @@ fun TargetEditDialog(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                text = "间隔 ${defaultIntervalMs}ms · 按压 ${defaultPressMs}ms（由「调校 → 连点设置」统一控制）",
+                                text = "Aralık: ${defaultIntervalMs} ms · Basma: ${defaultPressMs} ms (“Ayarlar → Ardışık dokunma” bölümünden yönetilir)",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = cs.onSecondaryContainer,
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)
@@ -1805,7 +1805,7 @@ fun TargetEditDialog(
 
                 val repeatVal = repeatText.toIntOrNull() ?: ClickTarget.defaultRepeatFor(executionMode)
                 Text(
-                    text = "循环次数 (0=无限)",
+                    text = "Döngü sayısı (0=sınırsız)",
                     style = MaterialTheme.typography.labelMedium,
                     color = cs.onSurfaceVariant
                 )
@@ -1813,7 +1813,7 @@ fun TargetEditDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    listOf(0 to "无限", 1 to "1次", 3 to "3次", 5 to "5次", 10 to "10次").forEach { (v, tag) ->
+                    listOf(0 to "Sınırsız", 1 to "1 kez", 3 to "3 kez", 5 to "5 kez", 10 to "10 kez").forEach { (v, tag) ->
                         val selected = repeatVal == v
                         Surface(
                             shape = CircleShape,
@@ -1838,7 +1838,7 @@ fun TargetEditDialog(
                 OutlinedTextField(
                     value = repeatText,
                     onValueChange = { repeatText = it.filter(Char::isDigit).take(4) },
-                    label = { Text("自定义循环次数 (0=无限, 1~9999)") },
+                    label = { Text("Özel döngü sayısı (0=sınırsız, 1~9999)") },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth()
@@ -1851,7 +1851,7 @@ fun TargetEditDialog(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("开启拟人高斯抖动", style = MaterialTheme.typography.bodyMedium)
+                        Text("Doğal görünümlü Gauss titreşimini etkinleştir", style = MaterialTheme.typography.bodyMedium)
                         CheckSwitch(checked = jitter, onCheckedChange = { jitter = it })
                     }
                 }
@@ -1860,7 +1860,7 @@ fun TargetEditDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("启用该步骤", style = MaterialTheme.typography.bodyMedium)
+                    Text("Bu adımı etkinleştir", style = MaterialTheme.typography.bodyMedium)
                     CheckSwitch(checked = enabled, onCheckedChange = { enabled = it })
                 }
             }
@@ -1907,10 +1907,10 @@ fun TargetEditDialog(
                         subDur
                     )
                 }
-            ) { Text("保存") }
+            ) { Text("Kaydet") }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
+            TextButton(onClick = onDismiss) { Text("İptal") }
         }
     )
 }

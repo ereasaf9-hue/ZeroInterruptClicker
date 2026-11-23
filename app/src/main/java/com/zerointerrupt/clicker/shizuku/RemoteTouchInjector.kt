@@ -87,9 +87,9 @@ internal object RemoteTouchInjector {
 
     /** One-line diagnostic string shown in the setup wizard. */
     fun diagnostics(): String {
-        if (inputBinder == null) return "注入通道未就绪"
+        if (inputBinder == null) return "Enjeksiyon kanalı hazır değil"
         val code = if (injectTransactionCode > 0) injectTransactionCode.toString() else "?"
-        return "直连注入 · 事务号 $code · API ${Build.VERSION.SDK_INT}"
+        return "Doğrudan enjeksiyon · işlem kodu $code · API ${Build.VERSION.SDK_INT}"
     }
 
     /** True when Shizuku is alive and this app currently holds the API permission. */
@@ -108,13 +108,13 @@ internal object RemoteTouchInjector {
     fun ensureReady(): Boolean {
         if (inputBinder != null) return true
         if (!isShizukuReady()) {
-            lastError = "Shizuku 未运行或未授权"
+            lastError = "Shizuku çalışmıyor veya izin verilmedi"
             return false
         }
         return try {
             val raw: IBinder = SystemServiceHelper.getSystemService(INPUT_SERVICE)
             if (!raw.pingBinder()) {
-                lastError = "input 系统服务不可用"
+                lastError = "input sistem hizmeti kullanılamıyor"
                 return false
             }
             inputBinder = ShizukuBinderWrapper(raw)
@@ -171,7 +171,7 @@ internal object RemoteTouchInjector {
             else -> -1
         }
         if (fallback <= 0) {
-            lastError = "无法确定 injectInputEvent 事务号（API ${Build.VERSION.SDK_INT}）"
+            lastError = "injectInputEvent işlem kodu belirlenemedi (API ${Build.VERSION.SDK_INT})"
             return false
         }
         injectTransactionCode = fallback
@@ -323,7 +323,7 @@ internal object RemoteTouchInjector {
     private fun inject(event: MotionEvent): Boolean {
         val binder = inputBinder
         if (binder == null) {
-            lastError = "注入通道未就绪"
+            lastError = "Enjeksiyon kanalı hazır değil"
             return false
         }
         var data: Parcel? = null
@@ -338,7 +338,7 @@ internal object RemoteTouchInjector {
             binder.transact(injectTransactionCode, data, reply, 0)
             reply.readException()
             val ok = reply.dataAvail() <= 0 || reply.readInt() != 0
-            lastError = if (ok) "" else "injectInputEvent 返回 false"
+            lastError = if (ok) "" else "injectInputEvent false döndürdü"
             ok
         } catch (t: Throwable) {
             lastError = t.message ?: t.javaClass.simpleName

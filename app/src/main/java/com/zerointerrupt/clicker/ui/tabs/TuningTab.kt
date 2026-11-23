@@ -54,19 +54,19 @@ fun TuningTab(
     }
 
     val tierOptions = listOf(
-        ExpressiveOption(ClickGlobalSettings.TIER_CASUAL, "休闲 150"),
-        ExpressiveOption(ClickGlobalSettings.TIER_STANDARD, "标准 60"),
-        ExpressiveOption(ClickGlobalSettings.TIER_FAST, "疾速 20"),
-        ExpressiveOption(ClickGlobalSettings.TIER_CUSTOM, "自定义")
+        ExpressiveOption(ClickGlobalSettings.TIER_CASUAL, "Rahat 150"),
+        ExpressiveOption(ClickGlobalSettings.TIER_STANDARD, "Standart 60"),
+        ExpressiveOption(ClickGlobalSettings.TIER_FAST, "Çok hızlı 20"),
+        ExpressiveOption(ClickGlobalSettings.TIER_CUSTOM, "Özel")
     )
 
     val menuActions = listOf(
         OverflowMenuAction(
-            label = "应用到全局",
+            label = "Genel ayarlara uygula",
             onClick = callbacks.onApplyDefaultsToGlobal
         ),
         OverflowMenuAction(
-            label = "恢复默认参数",
+            label = "Varsayılan ayarları geri yükle",
             onClick = callbacks.onResetTuningDefaults
         )
     )
@@ -79,7 +79,7 @@ fun TuningTab(
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         PageTopHeader(
-            title = "调校",
+            title = "İnce ayar",
             menuActions = menuActions
         )
 
@@ -101,7 +101,7 @@ fun TuningTab(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "连点设置",
+                        text = "Tekrarlı dokunuş ayarları",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
@@ -120,7 +120,7 @@ fun TuningTab(
                 }
 
                 SliderBlock(
-                    label = "点击间隔",
+                    label = "Dokunuş aralığı",
                     valueBadge = "${state.intervalMs} ms",
                     value = state.intervalMs.coerceIn(5L, 500L).toFloat(),
                     valueRange = 5f..500f,
@@ -138,7 +138,7 @@ fun TuningTab(
                 )
 
                 SliderBlock(
-                    label = "按压时长",
+                    label = "Basılı tutma süresi",
                     valueBadge = "${state.pressDurationMs} ms",
                     value = state.pressDurationMs.coerceIn(8L, 300L).toFloat(),
                     valueRange = 8f..300f,
@@ -156,7 +156,7 @@ fun TuningTab(
                 )
 
                 SliderBlock(
-                    label = "高斯微抖动半径（仅连点）",
+                    label = "Gauss mikro sapma yarıçapı (yalnızca tekrarlı dokunuşlarda)",
                     valueBadge = "${state.jitterRadiusPx.roundToInt()} px",
                     value = state.jitterRadiusPx.coerceIn(0f, 16f),
                     valueRange = 0f..16f,
@@ -173,7 +173,7 @@ fun TuningTab(
                     }
                 )
                 Text(
-                    text = "仅对「连点」生效，不影响滑动、长按与录制连招精度",
+                    text = "Yalnızca tekrarlı dokunuşlarda geçerlidir; kaydırmayı, basılı tutmayı veya kaydedilen makronun hassasiyetini etkilemez.",
                     style = MaterialTheme.typography.bodySmall,
                     color = cs.onSurfaceVariant
                 )
@@ -186,13 +186,13 @@ fun TuningTab(
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Text(
-                    text = "交互设置",
+                    text = "Etkileşim ayarları",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold
                 )
 
                 SliderBlock(
-                    label = "锁定不透明度",
+                    label = "Kilitli hedef opaklığı",
                     valueBadge = "${(state.lockedAnchorAlpha * 100f).roundToInt()}%",
                     value = state.lockedAnchorAlpha.coerceIn(
                         ClickGlobalSettings.MIN_LOCKED_ALPHA,
@@ -214,24 +214,24 @@ fun TuningTab(
                 )
 
                 SettingSwitchRow(
-                    title = "启动后锁定锚点",
+                    title = "Başlatınca hedefleri kilitle",
                     checked = state.autoLockOnStart,
                     onCheckedChange = callbacks.onAutoLockChange
                 )
 
                 SettingSwitchRow(
-                    title = "启动后贴边收起",
+                    title = "Başlatınca çubuğu kenara daralt",
                     checked = state.autoCollapseBar,
                     onCheckedChange = callbacks.onAutoCollapseChange
                 )
 
                 SettingSwitchRow(
-                    title = "录制模式下轨迹显示",
+                    title = "Kayıt sırasında dokunma izlerini göster",
                     checked = state.showMacroTrajectories,
                     onCheckedChange = callbacks.onShowMacroTrajectoriesChange
                 )
                 Text(
-                    text = "开启后完整显示全部录制与多指并发轨迹；轨迹复杂遮挡屏幕时可关闭隐藏",
+                    text = "Açıldığında kaydedilen tüm dokunma izleri ve eşzamanlı çoklu parmak hareketleri gösterilir. İzler ekranı fazla kaplıyorsa bu seçeneği kapatabilirsiniz.",
                     style = MaterialTheme.typography.bodySmall,
                     color = cs.onSurfaceVariant
                 )

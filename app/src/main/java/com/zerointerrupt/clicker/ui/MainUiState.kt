@@ -10,16 +10,16 @@ import com.zerointerrupt.clicker.shizuku.EngineSnapshot
 import com.zerointerrupt.clicker.shizuku.ShizukuConnectionState
 
 enum class MainTab(val title: String) {
-    HOME("启动"),
-    PRESETS("方案"),
-    TUNING("调校"),
-    LAB("实验室")
+    HOME("Başlat"),
+    PRESETS("Planlar"),
+    TUNING("Ayarlar"),
+    LAB("Laboratuvar")
 }
 
 data class MainUiState(
     val connectionState: ShizukuConnectionState,
     val engineSnapshot: EngineSnapshot,
-    val connectionDetail: String = "Shizuku 未连接",
+    val connectionDetail: String = "Shizuku bağlı değil",
     val slotStates: List<Int> = List(16) { 0 },
     val overlayVisible: Boolean,
     val clickingRunning: Boolean,

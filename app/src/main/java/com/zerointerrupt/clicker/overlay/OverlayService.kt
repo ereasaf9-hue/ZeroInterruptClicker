@@ -221,7 +221,7 @@ class OverlayService : Service(), ControlBarView.Listener {
                 refreshControlBarState()
                 Toast.makeText(
                     this@OverlayService,
-                    "检测到长按音量减 3 秒，已紧急释放触控独占",
+                    "Ses kısma tuşuna 3 saniye basılı tutulduğu algılandı; dokunma denetimi acil olarak bırakıldı",
                     Toast.LENGTH_LONG
                 ).show()
             }
@@ -235,7 +235,7 @@ class OverlayService : Service(), ControlBarView.Listener {
                 refreshControlBarState()
                 Toast.makeText(
                     this@OverlayService,
-                    "触控注入被拒绝：$reason",
+                    "Dokunma enjeksiyonu reddedildi: $reason",
                     Toast.LENGTH_LONG
                 ).show()
             }
@@ -251,7 +251,7 @@ class OverlayService : Service(), ControlBarView.Listener {
                     scheduleAutoCollapse(IDLE_COLLAPSE_DELAY_MS)
                     Toast.makeText(
                         this@OverlayService,
-                        "方案执行已完成",
+                        "Profil çalıştırması tamamlandı",
                         Toast.LENGTH_SHORT
                     ).show()
                 }
@@ -1433,7 +1433,7 @@ class OverlayService : Service(), ControlBarView.Listener {
         if (switchable.isEmpty()) {
             Toast.makeText(
                 this,
-                "全部方案均已冻结，请在方案页右上角 ⋮ 菜单中解冻",
+                "Tüm planlar dondurulmuş. Dondurmayı kaldırmak için Planlar sayfasının sağ üstündeki ⋮ menüsünü açın",
                 Toast.LENGTH_SHORT
             ).show()
             scheduleAutoCollapse(IDLE_COLLAPSE_DELAY_MS)
@@ -1442,9 +1442,9 @@ class OverlayService : Service(), ControlBarView.Listener {
         if (switchable.size == 1 && switchable[0].id == active.id) {
             val frozenCount = (presets.size - 1).coerceAtLeast(0)
             val msg = if (frozenCount > 0) {
-                "当前仅 1 个未冻结方案「${active.name}」（其余 $frozenCount 个已冻结跳过）"
+                "Şu anda yalnızca 1 plan dondurulmamış: „${active.name}“ (dondurulmuş diğer $frozenCount plan atlandı)"
             } else {
-                "当前仅 1 个方案「${active.name}」，可在主界面新增方案"
+                "Şu anda yalnızca 1 plan var: „${active.name}“. Ana ekrandan yeni plan ekleyebilirsiniz"
             }
             Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
             scheduleAutoCollapse(IDLE_COLLAPSE_DELAY_MS)
@@ -1464,7 +1464,7 @@ class OverlayService : Service(), ControlBarView.Listener {
         } else {
             Toast.makeText(
                 this,
-                "切换方案 ${newIdx + 1}/$total：${nextPreset.name} (${targets.size} 点)",
+                "Profil değiştirildi ${newIdx + 1}/$total: ${nextPreset.name} (${targets.size} hedef)",
                 Toast.LENGTH_SHORT
             ).show()
             scheduleAutoCollapse(IDLE_COLLAPSE_DELAY_MS)
@@ -1482,7 +1482,7 @@ class OverlayService : Service(), ControlBarView.Listener {
             if (showToast) {
                 Toast.makeText(
                     this,
-                    "切换方案 ${switchIdx + 1}/$switchTotal：$presetName（无启用节点，已停止）",
+                    "Profil değiştirildi ${switchIdx + 1}/$switchTotal: $presetName (etkin hedef yok; durduruldu)",
                     Toast.LENGTH_SHORT
                 ).show()
             }
@@ -1490,13 +1490,13 @@ class OverlayService : Service(), ControlBarView.Listener {
         }
         if (!ShizukuController.isServiceConnected()) {
             stopClickingInternal()
-            Toast.makeText(this, "Shizuku 触控服务尚未连接，已停止运行", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Shizuku dokunmatik hizmeti bağlı değil; işlem durduruldu", Toast.LENGTH_SHORT).show()
             return
         }
         if (showToast) {
             Toast.makeText(
                 this,
-                "切换方案 ${switchIdx + 1}/$switchTotal：$presetName · 无缝运行中",
+                "Profil değiştirildi ${switchIdx + 1}/$switchTotal: $presetName · kesintisiz çalışıyor",
                 Toast.LENGTH_SHORT
             ).show()
         }
@@ -1584,13 +1584,13 @@ class OverlayService : Service(), ControlBarView.Listener {
             return
         }
         if (targets.none { it.enabled }) {
-            Toast.makeText(this, "请至少启用一个手势锚点", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "En az bir hareket noktasını etkinleştirin", Toast.LENGTH_SHORT).show()
             scheduleAutoCollapse(IDLE_COLLAPSE_DELAY_MS)
             return
         }
         if (!ShizukuController.isServiceConnected()) {
             ShizukuController.evaluateShizukuState()
-            Toast.makeText(this, "Shizuku 触控服务尚未连接，请在主界面授权并连接", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Shizuku dokunmatik hizmeti bağlı değil. Ana ekrandan izin verip bağlanın", Toast.LENGTH_SHORT).show()
             scheduleAutoCollapse(IDLE_COLLAPSE_DELAY_MS)
             return
         }
@@ -1638,7 +1638,7 @@ class OverlayService : Service(), ControlBarView.Listener {
                     refreshControlBarState()
                     Toast.makeText(
                         this@OverlayService,
-                        if (mode == -4) "当前方案没有可执行的手势节点" else "启动连点失败 (code=$mode)，请检查 Shizuku 状态",
+                        if (mode == -4) "Geçerli profilde çalıştırılabilir hareket noktası yok" else "Tıklama başlatılamadı (code=$mode). Shizuku durumunu kontrol edin",
                         Toast.LENGTH_SHORT
                     ).show()
                     scheduleAutoCollapse(IDLE_COLLAPSE_DELAY_MS)
@@ -1772,7 +1772,7 @@ class OverlayService : Service(), ControlBarView.Listener {
         if (macroRecordOverlay?.isActive() == true) return
         if (!ShizukuController.isServiceConnected()) {
             ShizukuController.evaluateShizukuState()
-            Toast.makeText(this, "请先确保 Shizuku 服务已连接", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Önce Shizuku hizmetinin bağlı olduğundan emin olun", Toast.LENGTH_SHORT).show()
             if (!normalOverlayAttached) {
                 stopSelf()
             }
@@ -2000,14 +2000,14 @@ class OverlayService : Service(), ControlBarView.Listener {
             gravity = Gravity.CENTER_VERTICAL
         }
         val titleTv = TextView(themedCtx).apply {
-            text = "手势 #${target.index}  (${target.x.roundToInt()}, ${target.y.roundToInt()})"
+            text = "Hareket #${target.index}  (${target.x.roundToInt()}, ${target.y.roundToInt()})"
             setTextColor(colors.onSurface)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14.5f)
             paint.isFakeBoldText = true
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
         val closeTv = TextView(themedCtx).apply {
-            text = "完成"
+            text = "Tamam"
             isClickable = true
             setTextColor(colors.onPrimaryContainer)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
@@ -2030,7 +2030,7 @@ class OverlayService : Service(), ControlBarView.Listener {
 
         // Gesture Action Type selector (连点 / 滑动 / 长按)
         val gestureLabel = TextView(themedCtx).apply {
-            text = "手势类型"
+            text = "Hareket türü"
             setTextColor(colors.onSurfaceVariant)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
             setPadding(0, (8f * d).roundToInt(), 0, (4f * d).roundToInt())
@@ -2082,7 +2082,7 @@ class OverlayService : Service(), ControlBarView.Listener {
 
         if (target.actionType == ActionType.TAP) {
             val globalTapInfoTv = TextView(themedCtx).apply {
-                text = "连点节拍: 间隔 ${settings.defaultIntervalMs}ms · 按压 ${settings.defaultPressDurationMs}ms\n（在主界面「调校 → 连点设置」统一调整）"
+                text = "Tıklama ritmi: aralık ${settings.defaultIntervalMs} ms · basılı tutma ${settings.defaultPressDurationMs} ms\n(Ana ekranda “Ayarlar → Tıklama ayarları” bölümünden düzenleyin)"
                 setTextColor(colors.onSurfaceVariant)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
                 setPadding(0, (10f * d).roundToInt(), 0, (2f * d).roundToInt())
@@ -2091,7 +2091,7 @@ class OverlayService : Service(), ControlBarView.Listener {
         } else {
             // Interval section (SWIPE / HOLD only; TAP follows global 连点设置)
             val intervalValueTv = TextView(themedCtx).apply {
-                text = "循环间隔: ${target.intervalMs} ms"
+                text = "Döngü aralığı: ${target.intervalMs} ms"
                 setTextColor(colors.onSurfaceVariant)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
                 setPadding(0, (9f * d).roundToInt(), 0, (4f * d).roundToInt())
@@ -2115,7 +2115,7 @@ class OverlayService : Service(), ControlBarView.Listener {
                 intervalBtnRow.addView(createChipButton(themedCtx, label, false, colors) {
                     target.intervalMs = (target.intervalMs + delta)
                         .coerceIn(minIntervalForMode, ClickTarget.MAX_INTERVAL_MS)
-                    intervalValueTv.text = "循环间隔: ${target.intervalMs} ms"
+                    intervalValueTv.text = "Döngü aralığı: ${target.intervalMs} ms"
                     refreshIntervalPresetHighlight()
                     persistCurrentTargets()
                     if (isClicking) pushTargetsToServiceAsync()
@@ -2133,10 +2133,10 @@ class OverlayService : Service(), ControlBarView.Listener {
                 listOf(10L, 30L, 80L, 200L)
             }
             presetOptions.forEach { preset ->
-                val label = if (preset == 0L) "无缝(0)" else "${preset}ms"
+                val label = if (preset == 0L) "Kesintisiz (0)" else "${preset}ms"
                 val chip = createChipButton(themedCtx, label, target.intervalMs == preset, colors) {
                     target.intervalMs = preset
-                    intervalValueTv.text = "循环间隔: ${target.intervalMs} ms"
+                    intervalValueTv.text = "Döngü aralığı: ${target.intervalMs} ms"
                     refreshIntervalPresetHighlight()
                     persistCurrentTargets()
                     if (isClicking) pushTargetsToServiceAsync()
@@ -2149,7 +2149,7 @@ class OverlayService : Service(), ControlBarView.Listener {
             // Press or Swipe duration section
             if (target.actionType == ActionType.SWIPE) {
                 val swipeValueTv = TextView(themedCtx).apply {
-                    text = "滑动耗时: ${target.swipeDurationMs} ms"
+                    text = "Kaydırma süresi: ${target.swipeDurationMs} ms"
                     setTextColor(colors.onSurfaceVariant)
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
                     setPadding(0, (9f * d).roundToInt(), 0, (4f * d).roundToInt())
@@ -2160,7 +2160,7 @@ class OverlayService : Service(), ControlBarView.Listener {
                 listOf(150L, 320L, 600L, 1000L).forEach { preset ->
                     val chip = createChipButton(themedCtx, "${preset}ms", target.swipeDurationMs == preset, colors) {
                         target.swipeDurationMs = preset
-                        swipeValueTv.text = "滑动耗时: ${target.swipeDurationMs} ms"
+                        swipeValueTv.text = "Kaydırma süresi: ${target.swipeDurationMs} ms"
                         swipeChips.forEach { (p, c) -> styleChipButton(c, target.swipeDurationMs == p, colors) }
                         persistCurrentTargets()
                         if (isClicking) pushTargetsToServiceAsync()
@@ -2171,7 +2171,7 @@ class OverlayService : Service(), ControlBarView.Listener {
                 root.addView(swipeRow)
             } else {
                 val pressValueTv = TextView(themedCtx).apply {
-                    text = "长按时长(连招模式): ${target.pressDurationMs} ms"
+                    text = "Basılı tutma süresi (ardışık mod): ${target.pressDurationMs} ms"
                     setTextColor(colors.onSurfaceVariant)
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
                     setPadding(0, (9f * d).roundToInt(), 0, (4f * d).roundToInt())
@@ -2183,7 +2183,7 @@ class OverlayService : Service(), ControlBarView.Listener {
                 listOf(300L, 800L, 1500L, 3000L).forEach { preset ->
                     val chip = createChipButton(themedCtx, "${preset}ms", target.pressDurationMs == preset, colors) {
                         target.pressDurationMs = preset
-                        pressValueTv.text = "长按时长(连招模式): ${target.pressDurationMs} ms"
+                        pressValueTv.text = "Basılı tutma süresi (ardışık mod): ${target.pressDurationMs} ms"
                         pressPresetChips.forEach { (p, c) -> styleChipButton(c, target.pressDurationMs == p, colors) }
                         persistCurrentTargets()
                         if (isClicking) pushTargetsToServiceAsync()
@@ -2196,7 +2196,7 @@ class OverlayService : Service(), ControlBarView.Listener {
         }
 
         fun formatRepeatLabel(count: Int): String =
-            if (count <= 0) "循环次数: 无限 (0)" else "循环次数: $count 次"
+            if (count <= 0) "Döngü sayısı: sınırsız (0)" else "Döngü sayısı: $count kez"
 
         // Per-node repeatCount section
         val repeatValueTv = TextView(themedCtx).apply {
@@ -2231,7 +2231,7 @@ class OverlayService : Service(), ControlBarView.Listener {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, (5f * d).roundToInt(), 0, 0)
         }
-        listOf(0 to "无限", 1 to "1次", 3 to "3次", 5 to "5次").forEach { (presetVal, chipLabel) ->
+        listOf(0 to "Sınırsız", 1 to "1 kez", 3 to "3 kez", 5 to "5 kez").forEach { (presetVal, chipLabel) ->
             val chip = createChipButton(themedCtx, chipLabel, target.repeatCount == presetVal, colors) {
                 target.repeatCount = presetVal
                 repeatValueTv.text = formatRepeatLabel(target.repeatCount)
@@ -2255,7 +2255,7 @@ class OverlayService : Service(), ControlBarView.Listener {
 
         if (target.actionType == ActionType.TAP) {
             val jitterSwitch = SwitchMaterial(themedCtx).apply {
-                text = "拟人高斯抖动 (±${settings.jitterRadiusPx.roundToInt()}px)"
+                text = "İnsan benzeri Gauss titreşimi (±${settings.jitterRadiusPx.roundToInt()} px)"
                 setTextColor(colors.onSurface)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
                 setPadding(0, (6f * d).roundToInt(), 0, 0)
@@ -2273,7 +2273,7 @@ class OverlayService : Service(), ControlBarView.Listener {
         }
 
         val enabledSwitch = SwitchMaterial(themedCtx).apply {
-            text = "启用该锚点"
+            text = "Bu noktayı etkinleştir"
             setTextColor(colors.onSurface)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
             thumbTintList = thumbTint
