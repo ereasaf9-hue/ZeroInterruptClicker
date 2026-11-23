@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import rikka.shizuku.Shizuku
@@ -81,7 +82,28 @@ data class EngineSnapshot(
     val uid: Int = -1,
     val pid: Int = -1,
     val nativeProbeError: String = "",
-    val bindRetryCount: Int = 0
+    val bindRetryCount: Int = 0,
+    /** Shizuku (manager) binder is reachable from this process. */
+    val shizukuBinderAlive: Boolean = false,
+    /** This app currently holds the Shizuku API permission. */
+    val shizukuPermissionGranted: Boolean = false,
+    /** Shizuku manager API version (0 when unknown). */
+    val shizukuVersion: Int = 0,
+    /** Last bind/permission failure, kept for on-screen diagnostics. */
+    val lastBindError: String = ""
+)
+
+/**
+ * Granular Shizuku availability, independent from the privileged UserService bind.
+ * The UI uses it to tell "Shizuku is not running" apart from "Shizuku is running and
+ * granted, but the privileged service is still connecting".
+ */
+data class ShizukuStatus(
+    val binderAlive: Boolean = false,
+    val permissionGranted: Boolean = false,
+    val version: Int = 0,
+    val userServiceBound: Boolean = false,
+    val lastError: String = ""
 )
 
 data class DisplayScreenMetrics(
@@ -140,8 +162,28 @@ object ShizukuController {
     private const val MAX_AUTO_BIND_RETRIES = 4
     private val BIND_RETRY_DELAYS_MS = longArrayOf(1_500L, 3_000L, 6_000L, 12_000L)
 
+    /**
+     * The Shizuku binder, the API permission and the privileged UserService are three
+     * independent states that can change while the app is in the foreground (the user
+     * starts Shizuku, grants the permission in the manager, revokes it, ...). Shizuku
+     * does not always deliver a callback for those transitions, so a lightweight
+     * watchdog re-evaluates the whole chain instead of relying on onResume only.
+     */
+    private const val WATCHDOG_INTERVAL_MS = 1_500L
+    private const val WATCHDOG_ERROR_RETRY_MS = 8_000L
+
+    @Volatile
+    private var lastWatchdogErrorResetAt = 0L
+
     private val _connectionState = MutableStateFlow(ShizukuConnectionState.SHIZUKU_NOT_RUNNING)
     val connectionState: StateFlow<ShizukuConnectionState> = _connectionState.asStateFlow()
+
+    private val _shizukuStatus = MutableStateFlow(ShizukuStatus())
+    val shizukuStatus: StateFlow<ShizukuStatus> = _shizukuStatus.asStateFlow()
+
+    private var watchdogJob: kotlinx.coroutines.Job? = null
+    @Volatile
+    private var lastBindError: String = ""
 
     private val _engineSnapshot = MutableStateFlow(EngineSnapshot())
     val engineSnapshot: StateFlow<EngineSnapshot> = _engineSnapshot.asStateFlow()
@@ -200,7 +242,11 @@ object ShizukuController {
             service = null
             _slotStates.value = List(16) { 0 }
             _connectionState.value = ShizukuConnectionState.SHIZUKU_NOT_RUNNING
-            _engineSnapshot.value = EngineSnapshot(statusDetail = "Shizuku 服务已断开，等待重新连接")
+            _shizukuStatus.value = ShizukuStatus(lastError = lastBindError)
+            _engineSnapshot.value = EngineSnapshot(
+                statusDetail = "Shizuku 服务已断开，等待重新连接",
+                lastBindError = lastBindError
+            )
         }
         autoBindRetries = 0
     }
@@ -362,10 +408,17 @@ object ShizukuController {
             active.connected = true
             service = svc
             autoBindRetries = 0
+            lastBindError = ""
+            lastWatchdogErrorResetAt = 0L
+            _shizukuStatus.value = _shizukuStatus.value.copy(
+                userServiceBound = true,
+                lastError = ""
+            )
                 _connectionState.value = ShizukuConnectionState.CONNECTED
             _engineSnapshot.value = _engineSnapshot.value.copy(
                 statusDetail = "Shizuku UserService bağlandı.",
-                bindRetryCount = 0
+                bindRetryCount = 0,
+                lastBindError = ""
             )
             active
         }
@@ -398,6 +451,11 @@ object ShizukuController {
     }
 
     private fun handleSessionFailure(generation: Long, message: String) {
+        lastBindError = message
+        _shizukuStatus.value = _shizukuStatus.value.copy(
+            userServiceBound = false,
+            lastError = message
+        )
         val retired = synchronized(lifecycleLock) {
             val session = currentSession
             if (session == null || session.generation != generation) return
@@ -507,6 +565,11 @@ object ShizukuController {
 
     private fun onBindTimeout(generation: Long) {
         Log.w(TAG, "Timed out waiting for Shizuku UserService connection callback, generation=$generation")
+        lastBindError = "UserService ${USER_SERVICE_BIND_TIMEOUT_MS / 1000}s içinde bağlanmadı"
+        _shizukuStatus.value = _shizukuStatus.value.copy(
+            userServiceBound = false,
+            lastError = lastBindError
+        )
         val timedOut = synchronized(lifecycleLock) {
             val session = currentSession
             if (session == null || session.generation != generation || session.connected) return
@@ -549,7 +612,104 @@ object ShizukuController {
                 return
             }
         }
+        startWatchdog()
         evaluateShizukuState()
+    }
+
+    /** Reads the three Shizuku layers (binder / permission / UserService) without side effects. */
+    private fun probeShizukuStatus(): ShizukuStatus {
+        val binderAlive = runCatching { Shizuku.pingBinder() }.getOrDefault(false)
+        val version = if (binderAlive) {
+            runCatching { Shizuku.getVersion() }.getOrDefault(0)
+        } else {
+            0
+        }
+        val granted = if (binderAlive) {
+            runCatching {
+                !Shizuku.isPreV11() &&
+                    Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
+            }.getOrDefault(false)
+        } else {
+            false
+        }
+        return ShizukuStatus(
+            binderAlive = binderAlive,
+            permissionGranted = granted,
+            version = version,
+            userServiceBound = isServiceConnected(),
+            lastError = lastBindError
+        )
+    }
+
+    /** Publishes the granular status to the UI and mirrors it into the engine snapshot. */
+    fun refreshShizukuStatus(): ShizukuStatus {
+        val status = probeShizukuStatus()
+        _shizukuStatus.value = status
+        _engineSnapshot.value = _engineSnapshot.value.copy(
+            shizukuBinderAlive = status.binderAlive,
+            shizukuPermissionGranted = status.permissionGranted,
+            shizukuVersion = status.version,
+            lastBindError = status.lastError
+        )
+        return status
+    }
+
+    /**
+     * Single idempotent "make Shizuku usable" entry point used by the watchdog, by
+     * onResume and by window focus changes. It never leaves the controller stuck in
+     * BINDING/ERROR without an active bind attempt: whenever the binder and the API
+     * permission are available but no session is in flight, a bind is scheduled again.
+     */
+    fun ensureConnected() {
+        val status = refreshShizukuStatus()
+        if (status.userServiceBound) {
+            if (_connectionState.value != ShizukuConnectionState.CONNECTED) {
+                _connectionState.value = ShizukuConnectionState.CONNECTED
+                refreshCapabilitiesAsync()
+            }
+            return
+        }
+        val busy = synchronized(lifecycleLock) {
+            currentSession != null || pendingBindGeneration != null
+        }
+        if (busy) return
+        // Cheap guard: when the coarse state already matches reality there is nothing
+        // to do, so the watchdog does not rewrite the snapshot (and trigger
+        // recomposition) every tick.
+        val settled = when {
+            !status.binderAlive -> ShizukuConnectionState.SHIZUKU_NOT_RUNNING
+            !status.permissionGranted ->
+                if (activePermissionRequestCode != null) ShizukuConnectionState.NEEDS_SHIZUKU_AUTH
+                else ShizukuConnectionState.NO_PERMISSION
+            else -> null
+        }
+        if (settled != null && _connectionState.value == settled) return
+        if (_connectionState.value == ShizukuConnectionState.ERROR &&
+            status.binderAlive &&
+            status.permissionGranted
+        ) {
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (now - lastWatchdogErrorResetAt < WATCHDOG_ERROR_RETRY_MS) return
+            lastWatchdogErrorResetAt = now
+            autoBindRetries = 0
+        }
+        evaluateShizukuState()
+    }
+
+    private fun startWatchdog() {
+        synchronized(lifecycleLock) {
+            if (watchdogJob != null) return
+            watchdogJob = scope.launch {
+                while (isActive) {
+                    delay(WATCHDOG_INTERVAL_MS)
+                    try {
+                        ensureConnected()
+                    } catch (t: Throwable) {
+                        Log.w(TAG, "Shizuku watchdog tick failed", t)
+                    }
+                }
+            }
+        }
     }
 
     /**
@@ -580,6 +740,7 @@ object ShizukuController {
     }
 
     fun evaluateShizukuState() {
+        refreshShizukuStatus()
         val binderAlive = runCatching { Shizuku.pingBinder() }.getOrDefault(false)
         if (!binderAlive) {
             synchronized(lifecycleLock) {
@@ -587,7 +748,11 @@ object ShizukuController {
                 service = null
                 _slotStates.value = List(16) { 0 }
                 _connectionState.value = ShizukuConnectionState.SHIZUKU_NOT_RUNNING
-                _engineSnapshot.value = EngineSnapshot(statusDetail = "Önce Shizuku hizmetini başlatın.")
+                _shizukuStatus.value = ShizukuStatus(lastError = lastBindError)
+                _engineSnapshot.value = EngineSnapshot(
+                    statusDetail = "Önce Shizuku hizmetini başlatın.",
+                    lastBindError = lastBindError
+                )
             }
             return
         }
@@ -617,6 +782,10 @@ object ShizukuController {
                     service = null
                     _slotStates.value = List(16) { 0 }
                     _connectionState.value = ShizukuConnectionState.NO_PERMISSION
+                    _shizukuStatus.value = _shizukuStatus.value.copy(
+                        permissionGranted = false,
+                        userServiceBound = false
+                    )
                     _engineSnapshot.value = EngineSnapshot(
                         statusDetail = "Shizuku çalışıyor. Uygulamaya Shizuku izni verip yeniden bağlanın."
                     )
@@ -684,6 +853,7 @@ object ShizukuController {
             Shizuku.requestPermission(requestCode)
             startPermissionWatch(requestCode)
         } catch (t: Throwable) {
+            refreshShizukuStatus()
             synchronized(lifecycleLock) {
                 activePermissionRequestCode = null
                 permissionWatchJob?.cancel()
@@ -765,7 +935,11 @@ object ShizukuController {
             } else {
                 ShizukuConnectionState.ERROR
             }
-            _engineSnapshot.value = EngineSnapshot(statusDetail = "Shizuku UserService bağlantısı kapatıldı.")
+            _shizukuStatus.value = _shizukuStatus.value.copy(userServiceBound = false)
+            _engineSnapshot.value = EngineSnapshot(
+                statusDetail = "Shizuku UserService bağlantısı kapatıldı.",
+                lastBindError = lastBindError
+            )
             old
         }
         if (retired != null) removeUserServiceSafely(retired)
@@ -830,7 +1004,11 @@ object ShizukuController {
                     uid = obj.optInt("uid", -1),
                     pid = obj.optInt("pid", -1),
                     nativeProbeError = probeErr,
-                    bindRetryCount = autoBindRetries
+                    bindRetryCount = autoBindRetries,
+                    shizukuBinderAlive = _shizukuStatus.value.binderAlive,
+                    shizukuPermissionGranted = _shizukuStatus.value.permissionGranted,
+                    shizukuVersion = _shizukuStatus.value.version,
+                    lastBindError = lastBindError
                 )
                 if (isCurrentSession(generation) && service === svc) {
                     _engineSnapshot.value = snapshot

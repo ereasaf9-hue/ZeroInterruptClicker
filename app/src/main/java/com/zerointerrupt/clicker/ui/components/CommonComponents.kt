@@ -493,20 +493,24 @@ fun SetupWizardBottomSheet(
             )
 
             val shizukuConnected = state.connectionState == ShizukuConnectionState.CONNECTED
-            val shizukuBtn = when (state.connectionState) {
-                ShizukuConnectionState.SHIZUKU_NOT_RUNNING -> "打开 Shizuku"
-                ShizukuConnectionState.NO_PERMISSION -> "授予权限"
-                ShizukuConnectionState.NEEDS_SHIZUKU_AUTH -> "授权连接"
-                ShizukuConnectionState.BINDING -> "重新连接"
-                ShizukuConnectionState.CONNECTED -> "已连接"
-                ShizukuConnectionState.ERROR -> "重试"
+            val shizukuSnap = state.engineSnapshot
+            val shizukuBtn = when {
+                shizukuConnected -> "已连接"
+                !shizukuSnap.shizukuBinderAlive -> "打开 Shizuku"
+                !shizukuSnap.shizukuPermissionGranted -> "授予权限"
+                else -> "重新连接"
             }
-            val shizukuSubtitle = if (shizukuConnected) {
-                "已连接"
-            } else {
-                state.engineSnapshot.statusDetail
-                    .takeIf { it.isNotBlank() && it != "未连接 Shizuku 服务" }
-                    ?: "未连接"
+            val shizukuSubtitle = when {
+                shizukuConnected -> "已连接 · UID ${shizukuSnap.uid}"
+                !shizukuSnap.shizukuBinderAlive ->
+                    "未检测到 Shizuku 服务：请先在 Shizuku 中启动服务"
+                !shizukuSnap.shizukuPermissionGranted ->
+                    "Shizuku 已运行，等待本应用授权"
+                state.connectionState == ShizukuConnectionState.BINDING ->
+                    "Shizuku 已授权，特权服务连接中…"
+                shizukuSnap.lastBindError.isNotBlank() ->
+                    "连接失败：${shizukuSnap.lastBindError}"
+                else -> "Shizuku 已授权，正在连接特权服务"
             }
             WizardStepCard(
                 step = (stepNum++).toString(),
