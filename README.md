@@ -35,7 +35,7 @@ flowchart LR
 ## Yüzen kontrol kapsülünü kullanma
 
 - **Başlangıçtaki dar görünüm:** Kapsül ekranda serbestçe taşınabilir. Üst kenar düğmesini (`<` / `>`), başlatma/durdurma düğmesini (▶ / ■), dondurulmamış plan numaralarına (`1..N`) göre tek dokunuşla plan değiştirme düğmesini ve alttaki araçları genişletme düğmesini (`∨`) gösterir.
-- **Araçları genişletilmiş görünüm:** Alttaki `∨` düğmesine dokunarak `+` (sabitleme noktası ekle), `-` (seçili sabitleme noktasını sil), `🔒` (dokunmaları geçirerek kilitle / sürüklemeyi aç), `⚙` (tek nokta ince ayar paneli), `●` (makro kaydı) ve `✕` (yüzen pencereden çık) araçlarını açın. `∧` düğmesine dokunarak dar görünüme dönün.
+- **Araçları genişletilmiş görünüm:** Alttaki `∨` düğmesine dokunarak `+` (sabitleme noktası ekle), `-` (seçili sabitleme noktasını sil), `🔒` (hedef düzenlemeyi kilitle / aç), `⚙` (tek nokta ince ayar paneli), `●` (makro kaydı) ve `✕` (yüzen pencereden çık) araçlarını açın. Otomatik tıklama sürerken kilidi açarak hedefleri taşıyabilir, ekleyebilir veya silebilirsiniz; değişiklikler tıklamayı durdurmadan uygulanır. Son etkin hedefi silerseniz tıklama durur. `∧` düğmesine dokunarak dar görünüme dönün.
 - **Kenar mini kapsülü:** Üstteki `<` / `>` düğmesine dokunulduğunda veya **Başlatıldığında kenara daralt** seçeneği açıldığında kapsül otomatik olarak kenara yanaşır ve `20dp × 80dp` mini kapsüle küçülür. Ekranın orta çizgisinin diğer tarafına sürüklenirse karşı kenara yanaşır.
 - **Ardışık makronun toplam döngü sayısı:** Plan sayfasında **Ardışık** modu seçildiğinde **Tüm planın çalıştırılma sayısı** ayarlanabilir. `0` sonsuz döngü anlamına gelir; `>= 1` değerinde plan belirtilen sayıda çalıştırılır, ardından otomatik olarak durur ve durumu sıfırlanır.
 
