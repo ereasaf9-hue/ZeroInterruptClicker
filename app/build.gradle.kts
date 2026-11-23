@@ -39,8 +39,8 @@ android {
         applicationId = "com.zerointerrupt.clicker"
         minSdk = 26
         targetSdk = 35
-        versionCode = 12
-        versionName = "2.1.8"
+        versionCode = 13
+        versionName = "2.1.9"
 
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")

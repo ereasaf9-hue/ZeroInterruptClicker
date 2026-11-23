@@ -220,8 +220,14 @@ object ShizukuController {
             return@OnRequestPermissionResultListener
         }
         if (grantResult == PackageManager.PERMISSION_GRANTED) {
-            autoBindRetries = 0
-            scheduleUserServiceBind()
+            synchronized(lifecycleLock) {
+                _connectionState.value = ShizukuConnectionState.BINDING
+                _engineSnapshot.value = _engineSnapshot.value.copy(
+                    statusDetail = "Shizuku 授权已通过，正在确认权限…"
+                )
+            }
+            Log.i(TAG, "Shizuku permission granted for request=$requestCode; verifying permission before UserService bind.")
+            continueAfterPermissionGrant(requestCode)
         } else {
             val retired = synchronized(lifecycleLock) {
                 val old = invalidatePendingWorkLocked()
@@ -233,6 +239,26 @@ object ShizukuController {
                 old
             }
             if (retired != null) removeUserServiceSafely(retired)
+        }
+    }
+
+    private fun continueAfterPermissionGrant(requestCode: Int) {
+        scope.launch {
+            val permissionReady = awaitShizukuPermission(
+                maxAttempts = 20,
+                intervalMs = 250L,
+                binderAlive = { runCatching { Shizuku.pingBinder() }.getOrDefault(false) },
+                hasPermission = { hasPermission() }
+            )
+
+            if (permissionReady) {
+                Log.i(TAG, "Shizuku permission is visible after request=$requestCode; starting UserService bind.")
+                autoBindRetries = 0
+                scheduleUserServiceBind(delayMs = 0L)
+            } else {
+                Log.w(TAG, "Permission callback was granted but Shizuku permission check did not become granted for request=$requestCode.")
+                evaluateShizukuState()
+            }
         }
     }
 
@@ -436,6 +462,7 @@ object ShizukuController {
     }
 
     private fun onBindTimeout(generation: Long) {
+        Log.w(TAG, "Timed out waiting for Shizuku UserService connection callback, generation=$generation")
         val timedOut = synchronized(lifecycleLock) {
             val session = currentSession
             if (session == null || session.generation != generation || session.connected) return
