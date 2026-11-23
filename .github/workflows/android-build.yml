@@ -2,9 +2,15 @@ name: Android APK Build
 
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Release tag to publish, for example v2.1.22"
+        required: true
+        default: "v2.1.22"
+        type: string
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   ANDROID_HOME: /usr/local/lib/android/sdk
@@ -38,6 +44,24 @@ jobs:
       - name: Build release APK
         run: ./gradlew :app:assembleRelease --no-daemon
 
+      - name: Prepare versioned APK filename
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "release_tag must be vMAJOR.MINOR.PATCH" >&2
+            exit 1
+          fi
+          VERSION="${RELEASE_TAG#v}"
+          if ! grep -Fq "versionName = \"$VERSION\"" app/build.gradle.kts; then
+            echo "Release tag does not match app version" >&2
+            exit 1
+          fi
+          APK_DIR="app/build/outputs/apk/release"
+          APK_SOURCE="$(find "$APK_DIR" -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          test -n "$APK_SOURCE"
+          mv "$APK_SOURCE" "$APK_DIR/ZeroInterruptClicker-${VERSION}-release.apk"
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
@@ -45,3 +69,15 @@ jobs:
           path: app/build/outputs/apk/release/*.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish APK GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          VERSION="${RELEASE_TAG#v}"
+          APK="app/build/outputs/apk/release/ZeroInterruptClicker-${VERSION}-release.apk"
+          gh release create "$RELEASE_TAG" "$APK" \
+            --title "ZeroInterruptClicker $RELEASE_TAG" \
+            --target "$GITHUB_SHA" \
+            --notes "Tıklama sürerken hedef noktaları taşıyabilir, ekleyebilir veya silebilirsiniz. Son etkin hedef silinirse tıklama durur. Bu APK geçici debug anahtarıyla imzalanmıştır; mevcut kurulum üzerine güncelleme başarısız olabilir."
