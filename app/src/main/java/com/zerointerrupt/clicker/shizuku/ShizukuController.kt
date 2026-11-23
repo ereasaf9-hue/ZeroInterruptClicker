@@ -108,7 +108,7 @@ object ShizukuController {
     private val generations = ShizukuSessionGeneration()
     private var pendingBindGeneration: Long? = null
     private var pendingBindJob: kotlinx.coroutines.Job? = null
-    private var permissionTimeoutJob: kotlinx.coroutines.Job? = null
+    private var permissionWatchJob: kotlinx.coroutines.Job? = null
     private var activePermissionRequestCode: Int? = null
     private var nextPermissionRequestCode = REQUEST_CODE_SHIZUKU
     @Volatile
@@ -135,6 +135,7 @@ object ShizukuController {
     private const val USER_SERVICE_BIND_TIMEOUT_MS = 15_000L
     private const val USER_SERVICE_RECONNECT_DELAY_MS = 750L
     private const val PERMISSION_REQUEST_TIMEOUT_MS = 20_000L
+    private const val PERMISSION_POLL_INTERVAL_MS = 250L
     private const val USER_SERVICE_STARTUP_DELAY_MS = 2_000L
     private const val MAX_AUTO_BIND_RETRIES = 4
     private val BIND_RETRY_DELAYS_MS = longArrayOf(1_500L, 3_000L, 6_000L, 12_000L)
@@ -205,59 +206,102 @@ object ShizukuController {
     }
 
     private val permissionResultListener = Shizuku.OnRequestPermissionResultListener { requestCode, grantResult ->
-        val isExpected = synchronized(lifecycleLock) {
+        var retired: BindSession? = null
+        val result = synchronized(lifecycleLock) {
             if (activePermissionRequestCode != requestCode) {
-                false
-            } else {
-                activePermissionRequestCode = null
-                permissionTimeoutJob?.cancel()
-                permissionTimeoutJob = null
-                true
-            }
-        }
-        if (!isExpected) {
-            Log.d(TAG, "Ignoring stale Shizuku permission result for request=$requestCode")
-            return@OnRequestPermissionResultListener
-        }
-        if (grantResult == PackageManager.PERMISSION_GRANTED) {
-            synchronized(lifecycleLock) {
+                0
+            } else if (grantResult == PackageManager.PERMISSION_GRANTED) {
+                // Keep the request alive until checkSelfPermission() actually sees the grant.
+                // The Shizuku callback may arrive before the permission state is propagated.
                 _connectionState.value = ShizukuConnectionState.BINDING
                 _engineSnapshot.value = _engineSnapshot.value.copy(
-                    statusDetail = "Shizuku 授权已通过，正在确认权限…"
+                    statusDetail = "Shizuku izni verildi; izin durumu doğrulanıyor…"
                 )
-            }
-            Log.i(TAG, "Shizuku permission granted for request=$requestCode; verifying permission before UserService bind.")
-            continueAfterPermissionGrant(requestCode)
-        } else {
-            val retired = synchronized(lifecycleLock) {
-                val old = invalidatePendingWorkLocked()
+                1
+            } else {
+                retired = invalidatePendingWorkLocked()
                 service = null
+                _slotStates.value = List(16) { 0 }
                 _connectionState.value = ShizukuConnectionState.NEEDS_SHIZUKU_AUTH
                 _engineSnapshot.value = EngineSnapshot(
-                    statusDetail = "未获得 Shizuku 授权：请在 Shizuku 管理器中允许本应用"
+                    statusDetail = "Shizuku izni reddedildi. Shizuku yöneticisinden izin verip yeniden deneyin."
                 )
-                old
+                2
             }
-            if (retired != null) removeUserServiceSafely(retired)
+        }
+        when (result) {
+            0 -> Log.d(TAG, "Ignoring stale Shizuku permission result for request=$requestCode")
+            1 -> Log.i(TAG, "Shizuku permission callback granted request=$requestCode; permission watcher remains active.")
+            2 -> {
+                Log.i(TAG, "Shizuku permission denied for request=$requestCode")
+                if (retired != null) removeUserServiceSafely(retired!!)
+            }
         }
     }
 
-    private fun continueAfterPermissionGrant(requestCode: Int) {
-        scope.launch {
+    private fun startPermissionWatch(requestCode: Int) {
+        val watcher = scope.launch {
             val permissionReady = awaitShizukuPermission(
-                maxAttempts = 20,
-                intervalMs = 250L,
+                maxAttempts = (PERMISSION_REQUEST_TIMEOUT_MS / PERMISSION_POLL_INTERVAL_MS).toInt(),
+                intervalMs = PERMISSION_POLL_INTERVAL_MS,
                 binderAlive = { runCatching { Shizuku.pingBinder() }.getOrDefault(false) },
-                hasPermission = { hasPermission() }
+                hasPermission = { hasPermission() },
+                requestPending = {
+                    synchronized(lifecycleLock) { activePermissionRequestCode == requestCode }
+                }
             )
-
-            if (permissionReady) {
-                Log.i(TAG, "Shizuku permission is visible after request=$requestCode; starting UserService bind.")
-                autoBindRetries = 0
-                scheduleUserServiceBind(delayMs = 0L)
+            val binderAlive = runCatching { Shizuku.pingBinder() }.getOrDefault(false)
+            val granted = binderAlive && (permissionReady || hasPermission())
+            val result = synchronized(lifecycleLock) {
+                if (activePermissionRequestCode != requestCode) {
+                    0
+                } else {
+                    activePermissionRequestCode = null
+                    permissionWatchJob = null
+                    when {
+                        granted -> {
+                            _connectionState.value = ShizukuConnectionState.BINDING
+                            _engineSnapshot.value = _engineSnapshot.value.copy(
+                                statusDetail = "Shizuku izni doğrulandı; UserService başlatılıyor…"
+                            )
+                            1
+                        }
+                        !binderAlive -> {
+                            _connectionState.value = ShizukuConnectionState.SHIZUKU_NOT_RUNNING
+                            _engineSnapshot.value = EngineSnapshot(
+                                statusDetail = "İzin beklenirken Shizuku bağlantısı kesildi. Shizuku’yu başlatıp yeniden deneyin."
+                            )
+                            3
+                        }
+                        else -> {
+                            _connectionState.value = ShizukuConnectionState.NEEDS_SHIZUKU_AUTH
+                            _engineSnapshot.value = _engineSnapshot.value.copy(
+                                statusDetail = "Shizuku izni 20 saniye içinde doğrulanamadı. Shizuku yöneticisinde bu uygulamanın iznini kontrol edin."
+                            )
+                            2
+                        }
+                    }
+                }
+            }
+            when (result) {
+                1 -> {
+                    autoBindRetries = 0
+                    Log.i(TAG, "Permission watcher observed the Shizuku grant for request=$requestCode; starting UserService bind.")
+                    scheduleUserServiceBind(delayMs = 0L)
+                }
+                2 -> Log.w(TAG, "Shizuku permission request timed out without a visible grant: request=$requestCode")
+                3 -> {
+                    Log.w(TAG, "Shizuku binder disappeared while waiting for permission: request=$requestCode")
+                    evaluateShizukuState()
+                }
+            }
+        }
+        synchronized(lifecycleLock) {
+            if (activePermissionRequestCode == requestCode) {
+                permissionWatchJob?.cancel()
+                permissionWatchJob = watcher
             } else {
-                Log.w(TAG, "Permission callback was granted but Shizuku permission check did not become granted for request=$requestCode.")
-                evaluateShizukuState()
+                watcher.cancel()
             }
         }
     }
@@ -267,8 +311,8 @@ object ShizukuController {
         pendingBindJob?.cancel()
         pendingBindJob = null
         pendingBindGeneration = null
-        permissionTimeoutJob?.cancel()
-        permissionTimeoutJob = null
+        permissionWatchJob?.cancel()
+        permissionWatchJob = null
         activePermissionRequestCode = null
         val retired = currentSession
         retired?.timeoutJob?.cancel()
@@ -560,24 +604,45 @@ object ShizukuController {
         }
         if (!hasPermission()) {
             val retired = synchronized(lifecycleLock) {
-                val old = invalidatePendingWorkLocked()
-                service = null
-                _slotStates.value = List(16) { 0 }
-                _connectionState.value = ShizukuConnectionState.NO_PERMISSION
-                _engineSnapshot.value = EngineSnapshot(
-                    statusDetail = "Shizuku çalışıyor. Uygulamaya Shizuku izni verip yeniden bağlanın."
-                )
-                old
+                if (activePermissionRequestCode != null) {
+                    // onResume may run before Shizuku.checkSelfPermission() exposes the grant.
+                    // Keep the callback and permission watcher alive during that propagation gap.
+                    _connectionState.value = ShizukuConnectionState.NEEDS_SHIZUKU_AUTH
+                    _engineSnapshot.value = _engineSnapshot.value.copy(
+                        statusDetail = "Shizuku izni bekleniyor; izin durumu yeniden kontrol ediliyor…"
+                    )
+                    null
+                } else {
+                    val old = invalidatePendingWorkLocked()
+                    service = null
+                    _slotStates.value = List(16) { 0 }
+                    _connectionState.value = ShizukuConnectionState.NO_PERMISSION
+                    _engineSnapshot.value = EngineSnapshot(
+                        statusDetail = "Shizuku çalışıyor. Uygulamaya Shizuku izni verip yeniden bağlanın."
+                    )
+                    old
+                }
             }
             if (retired != null) removeUserServiceSafely(retired)
             return
         }
+        clearPendingPermissionRequestAfterGrant()
         val connected = service?.asBinder()?.let { runCatching { it.pingBinder() }.getOrDefault(false) } == true
         if (connected) {
             _connectionState.value = ShizukuConnectionState.CONNECTED
             refreshCapabilitiesAsync()
         } else {
             scheduleUserServiceBind()
+        }
+    }
+
+    /** A visible grant wins over the callback/poll and prevents stale timeout state. */
+    private fun clearPendingPermissionRequestAfterGrant() {
+        synchronized(lifecycleLock) {
+            if (activePermissionRequestCode == null) return
+            activePermissionRequestCode = null
+            permissionWatchJob?.cancel()
+            permissionWatchJob = null
         }
     }
 
@@ -602,6 +667,7 @@ object ShizukuController {
                 return
             }
             if (hasPermission()) {
+                clearPendingPermissionRequestAfterGrant()
                 autoBindRetries = 0
                 scheduleUserServiceBind()
                 return
@@ -616,29 +682,12 @@ object ShizukuController {
                 nextCode
             }
             Shizuku.requestPermission(requestCode)
-            val timeout = scope.launch {
-                delay(PERMISSION_REQUEST_TIMEOUT_MS)
-                val expired = synchronized(lifecycleLock) {
-                    if (activePermissionRequestCode != requestCode) false else {
-                        activePermissionRequestCode = null
-                        permissionTimeoutJob = null
-                        _connectionState.value = ShizukuConnectionState.NEEDS_SHIZUKU_AUTH
-                        _engineSnapshot.value = _engineSnapshot.value.copy(
-                            statusDetail = "Shizuku yetkilendirmesi zaman aşımına uğradı. Shizuku yöneticisini kontrol edin."
-                        )
-                        true
-                    }
-                }
-                if (expired) Log.w(TAG, "Shizuku permission request timed out: $requestCode")
-            }
-            synchronized(lifecycleLock) {
-                if (activePermissionRequestCode == requestCode) permissionTimeoutJob = timeout else timeout.cancel()
-            }
+            startPermissionWatch(requestCode)
         } catch (t: Throwable) {
             synchronized(lifecycleLock) {
                 activePermissionRequestCode = null
-                permissionTimeoutJob?.cancel()
-                permissionTimeoutJob = null
+                permissionWatchJob?.cancel()
+                permissionWatchJob = null
                 _connectionState.value = ShizukuConnectionState.ERROR
                 _engineSnapshot.value = _engineSnapshot.value.copy(
                     statusDetail = "Shizuku izni istenemedi: ${t.message ?: t.javaClass.simpleName}"

@@ -22,6 +22,37 @@ class ShizukuPermissionGateTest {
     }
 
     @Test
+    fun detectsGrantAfterThePreviousShortPollingWindow() = runBlocking {
+        var permissionChecks = 0
+        val ready = awaitShizukuPermission(
+            maxAttempts = 80,
+            intervalMs = 0L,
+            binderAlive = { true },
+            hasPermission = { ++permissionChecks >= 31 }
+        )
+
+        assertTrue(ready)
+        assertEquals(31, permissionChecks)
+    }
+
+    @Test
+    fun stopsPollingWhenPermissionRequestIsNoLongerPending() = runBlocking {
+        var requestChecks = 0
+        var permissionChecks = 0
+        val ready = awaitShizukuPermission(
+            maxAttempts = 10,
+            intervalMs = 0L,
+            binderAlive = { true },
+            hasPermission = { permissionChecks++; false },
+            requestPending = { ++requestChecks <= 1 }
+        )
+
+        assertFalse(ready)
+        assertEquals(2, requestChecks)
+        assertEquals(1, permissionChecks)
+    }
+
+    @Test
     fun stopsWhenShizukuBinderIsDead() = runBlocking {
         var permissionChecks = 0
         val ready = awaitShizukuPermission(
