@@ -11,6 +11,14 @@
     <!-- Needed on some Android kernels to bind local 127.0.0.1 loopback sockets (never listens on external interfaces) -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Android 11+ package visibility: without this the app cannot resolve
+         moe.shizuku.privileged.api, so getLaunchIntentForPackage() returns null and the
+         "open Shizuku" action silently does nothing. -->
+    <queries>
+        <package android:name="moe.shizuku.privileged.api" />
+        <package android:name="moe.shizuku.privileged.api.debug" />
+    </queries>
+
     <application
         android:name=".ZeroInterruptApp"
         android:allowBackup="true"
