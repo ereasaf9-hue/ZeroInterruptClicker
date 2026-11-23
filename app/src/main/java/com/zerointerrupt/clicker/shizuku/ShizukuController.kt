@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicInteger
 import org.json.JSONObject
 import rikka.shizuku.Shizuku
 
@@ -127,6 +128,28 @@ object ShizukuController {
     private val lifecycleLock = Any()
     /** Serializes Shizuku's bind/unbind calls against one another. */
     private val shizukuApiLock = Any()
+    private val shizukuApiCallsInFlight = AtomicInteger(0)
+
+    private inline fun <T> withShizukuApiLock(block: () -> T): T {
+        shizukuApiCallsInFlight.incrementAndGet()
+        try {
+            return synchronized(shizukuApiLock) { block() }
+        } finally {
+            shizukuApiCallsInFlight.decrementAndGet()
+        }
+    }
+
+    private fun refuseRecoveryWhileApiCallIsActive(): Boolean {
+        if (shizukuApiCallsInFlight.get() <= 0) return false
+        val detail = "Önceki Shizuku bağlama/temizleme çağrısı hâlâ bekliyor. Shizuku hizmetini yöneticisinden yeniden başlatıp tekrar deneyin."
+        synchronized(lifecycleLock) {
+            if (currentSession == null && _connectionStatus.value.state != ShizukuConnectionState.CONNECTED) {
+                setConnectionStateLocked(ShizukuConnectionState.ERROR, detail)
+                _engineSnapshot.value = _engineSnapshot.value.copy(statusDetail = detail)
+            }
+        }
+        return true
+    }
 
     @Volatile
     private var appContext: Context? = null
@@ -501,7 +524,7 @@ object ShizukuController {
 
     private fun removeUserServiceSafely(session: BindSession) {
         try {
-            synchronized(shizukuApiLock) {
+            withShizukuApiLock {
                 Shizuku.unbindUserService(session.args, session.connection, true)
             }
         } catch (t: Throwable) {
@@ -605,24 +628,23 @@ object ShizukuController {
 
     private fun onBindTimeout(generation: Long) {
         Log.w(TAG, "Timed out waiting for Shizuku UserService connection callback, generation=$generation")
+        val timeoutDetail = "Shizuku UserService ${USER_SERVICE_BIND_TIMEOUT_MS / 1000} saniyede yanıt vermedi. Shizuku veya cihaz ROM'u servisi başlatmıyor olabilir; Shizuku'yu yeniden başlatıp tekrar deneyin."
         val timedOut = synchronized(lifecycleLock) {
             val session = currentSession
             if (session == null || session.generation != generation || session.connected) return
             currentSession = null
             generations.invalidate()
             service = null
-            setConnectionStateLocked(
-                ShizukuConnectionState.BINDING,
-                "Shizuku 未响应，正在准备自动重试…"
-            )
+            setConnectionStateLocked(ShizukuConnectionState.ERROR, timeoutDetail)
             _engineSnapshot.value = _engineSnapshot.value.copy(
-                statusDetail = "Shizuku UserService 在 ${USER_SERVICE_BIND_TIMEOUT_MS / 1000} 秒内未响应。",
-                bindRetryCount = autoBindRetries
+                statusDetail = timeoutDetail,
+                bindRetryCount = 0
             )
+            autoBindRetries = 0
             session
         }
-        removeUserServiceSafely(timedOut)
-        scheduleBindRetry("UserService bağlantı zaman aşımı.")
+        // Do not let cleanup block the timeout transition behind a stuck bind call.
+        scope.launch { removeUserServiceSafely(timedOut) }
     }
 
     fun initialize(context: Context) {
@@ -661,6 +683,7 @@ object ShizukuController {
      * process. Late callbacks from the old process can no longer change app state.
      */
     fun forceRebind() {
+        if (refuseRecoveryWhileApiCallIsActive()) return
         val retired = synchronized(lifecycleLock) {
             if (_connectionStatus.value.state.isBusy) return
             pendingBindJob?.cancel()
@@ -857,6 +880,7 @@ object ShizukuController {
     fun bindUserService(forceFreshService: Boolean = false) = startUserServiceBind(forceFreshService)
 
     private fun startUserServiceBind(forceFreshService: Boolean) {
+        if (refuseRecoveryWhileApiCallIsActive()) return
         val ctx = appContext ?: return
         if (!runCatching { Shizuku.pingBinder() && hasPermission() }.getOrDefault(false)) {
             evaluateShizukuState()
@@ -900,7 +924,7 @@ object ShizukuController {
         }
         try {
             Log.i(TAG, "Binding UserService generation=${session.generation}, version=$userServiceVersionCode, forceFresh=$forceFreshService")
-            synchronized(shizukuApiLock) {
+            withShizukuApiLock {
                 val stillCurrent = synchronized(lifecycleLock) {
                     currentSession?.generation == session.generation
                 }
