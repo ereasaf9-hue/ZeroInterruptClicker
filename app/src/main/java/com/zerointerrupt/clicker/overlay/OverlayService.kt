@@ -170,6 +170,7 @@ class OverlayService : Service(), ControlBarView.Listener {
     private var volumeToggleJob: Job? = null
     private var emergencyUngrabJob: Job? = null
     private var clickingCompletedJob: Job? = null
+    private var injectionErrorJob: Job? = null
 
     private val displayListener = object : DisplayManager.DisplayListener {
         override fun onDisplayAdded(displayId: Int) = Unit
@@ -221,6 +222,20 @@ class OverlayService : Service(), ControlBarView.Listener {
                 Toast.makeText(
                     this@OverlayService,
                     "检测到长按音量减 3 秒，已紧急释放触控独占",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+
+        injectionErrorJob = serviceScope.launch {
+            ShizukuController.injectionErrorEvents.collect { reason ->
+                isClicking = false
+                OverlayStateHub.setClickingRunning(this@OverlayService, false)
+                refreshAnchorVisuals()
+                refreshControlBarState()
+                Toast.makeText(
+                    this@OverlayService,
+                    "触控注入被拒绝：$reason",
                     Toast.LENGTH_LONG
                 ).show()
             }
@@ -354,6 +369,7 @@ class OverlayService : Service(), ControlBarView.Listener {
         volumeToggleJob?.cancel()
         emergencyUngrabJob?.cancel()
         clickingCompletedJob?.cancel()
+        injectionErrorJob?.cancel()
         stopClickingInternal()
         dismissTunePanel()
         removeAllAnchorWindows()

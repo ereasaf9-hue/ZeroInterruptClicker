@@ -276,6 +276,10 @@ object ShizukuController {
     private val _clickingCompletedEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 4)
     val clickingCompletedEvents: SharedFlow<Unit> = _clickingCompletedEvents.asSharedFlow()
 
+    /** Emits a human readable reason when privileged touch injection is rejected. */
+    private val _injectionErrorEvents = MutableSharedFlow<String>(extraBufferCapacity = 4)
+    val injectionErrorEvents: SharedFlow<String> = _injectionErrorEvents.asSharedFlow()
+
     private fun setConnectionStateLocked(state: ShizukuConnectionState, detail: String) {
         _connectionStatus.value = ShizukuConnectionStatus(state, detail)
     }
@@ -1570,20 +1574,30 @@ object ShizukuController {
         val jitter = if (target.microJitter && jitterRadiusPx > 0f) jitterRadiusPx.toInt() else 0
         val jx = if (jitter > 0) Random.nextInt(-jitter, jitter + 1).toFloat() else 0f
         val jy = if (jitter > 0) Random.nextInt(-jitter, jitter + 1).toFloat() else 0f
-        when (target.actionType) {
+        val ok = when (target.actionType) {
             ActionType.SWIPE.code -> RemoteTouchInjector.swipe(
                 target.x, target.y, target.endX, target.endY, target.swipeDurationMs
             )
             ActionType.HOLD.code -> {
-                RemoteTouchInjector.hold(true, target.x + jx, target.y + jy)
-                delay(target.pressDurationMs.coerceIn(30L, 60_000L))
-                RemoteTouchInjector.releaseHold()
+                val down = RemoteTouchInjector.hold(true, target.x + jx, target.y + jy)
+                if (down) {
+                    delay(target.pressDurationMs.coerceIn(30L, 60_000L))
+                    RemoteTouchInjector.releaseHold()
+                } else {
+                    false
+                }
             }
             else -> RemoteTouchInjector.tap(
                 target.x + jx,
                 target.y + jy,
                 target.pressDurationMs.coerceIn(10L, 5_000L)
             )
+        }
+        if (!ok) {
+            val reason = RemoteTouchInjector.error.ifBlank { "未知原因" }
+            Log.w(TAG, "Direct injection rejected: $reason")
+            directTapLoopRunning = false
+            _injectionErrorEvents.tryEmit(reason)
         }
     }
 

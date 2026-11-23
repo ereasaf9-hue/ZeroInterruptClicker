@@ -1,6 +1,7 @@
 package com.zerointerrupt.clicker.shizuku
 
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.IBinder
 import android.os.Parcel
 import android.os.SystemClock
@@ -36,12 +37,27 @@ internal object RemoteTouchInjector {
 
     private const val INPUT_SERVICE = "input"
     private const val INPUT_MANAGER_DESCRIPTOR = "android.hardware.input.IInputManager"
+    private const val INPUT_MANAGER_STUB = "android.hardware.input.IInputManager\$Stub"
 
-    /** `IInputManager` AIDL transaction id of `injectInputEvent(InputEvent, int)`. */
-    private const val TRANSACTION_INJECT_INPUT_EVENT = IBinder.FIRST_CALL_TRANSACTION + 0
+    /**
+     * `IInputManager` AIDL transaction id of `injectInputEvent(InputEvent, int)`.
+     *
+     * The id is **not** stable across releases because methods get inserted into the
+     * interface (it is 9 on Android 13, 10 on Android 14 and 11 on Android 15/16), so it
+     * is resolved at runtime: first through Shizuku's `getTransactionCode` helper, then
+     * from the stub class constant, then from the known per-API layout.
+     */
+    @Volatile
+    private var injectTransactionCode: Int = -1
 
-    /** `InputManager.INJECT_INPUT_EVENT_MODE_ASYNC` */
-    private const val INJECT_MODE_ASYNC = 0
+    /**
+     * `InputManager.INJECT_INPUT_EVENT_MODE_WAIT_FOR_FINISH`.
+     *
+     * The async mode returns `true` even when the event is dropped, which is
+     * indistinguishable from "nothing happens". Waiting for the dispatch result surfaces
+     * permission/dispatcher failures instead of hiding them.
+     */
+    private const val INJECT_MODE_WAIT_FOR_FINISH = 1
 
     private const val SWIPE_STEP_MS = 16L
     private const val MAX_SWIPE_STEPS = 240
@@ -91,10 +107,15 @@ internal object RemoteTouchInjector {
                 return false
             }
             inputBinder = ShizukuBinderWrapper(raw)
+            if (!resolveInjectTransactionCode()) {
+                inputBinder = null
+                return false
+            }
             lastError = ""
             Log.i(
                 TAG,
-                "Direct privileged injection channel ready (Shizuku v${runCatching { Shizuku.getVersion() }.getOrDefault(-1)})."
+                "Direct privileged injection channel ready (Shizuku v${runCatching { Shizuku.getVersion() }.getOrDefault(-1)}, " +
+                    "injectInputEvent transaction=$injectTransactionCode)."
             )
             true
         } catch (t: Throwable) {
@@ -105,9 +126,51 @@ internal object RemoteTouchInjector {
         }
     }
 
+    /**
+     * Finds the AIDL transaction id of `injectInputEvent`. Guessing this wrong silently
+     * calls a completely different method, which looks exactly like "nothing happens".
+     */
+    private fun resolveInjectTransactionCode(): Boolean {
+        if (injectTransactionCode > 0) return true
+
+        // 1) Shizuku's own helper reads TRANSACTION_injectInputEvent from the stub class.
+        val fromHelper = runCatching {
+            SystemServiceHelper.getTransactionCode(INPUT_MANAGER_STUB, "injectInputEvent")
+        }.getOrNull()
+        if (fromHelper != null && fromHelper > 0) {
+            injectTransactionCode = fromHelper
+            return true
+        }
+
+        // 2) Read the public constant from the stub class directly.
+        val fromField = runCatching {
+            val stub = Class.forName(INPUT_MANAGER_STUB)
+            stub.getField("TRANSACTION_injectInputEvent").getInt(null)
+        }.getOrNull()
+        if (fromField != null && fromField > 0) {
+            injectTransactionCode = fromField
+            return true
+        }
+
+        // 3) Known interface layout per platform release.
+        val fallback = when {
+            Build.VERSION.SDK_INT >= 35 -> 11 // Android 15/16
+            Build.VERSION.SDK_INT == 34 -> 10 // Android 14
+            Build.VERSION.SDK_INT == 33 -> 9  // Android 13
+            else -> -1
+        }
+        if (fallback <= 0) {
+            lastError = "无法确定 injectInputEvent 事务号（API ${Build.VERSION.SDK_INT}）"
+            return false
+        }
+        injectTransactionCode = fallback
+        return true
+    }
+
     /** Drops the cached channel (e.g. after the Shizuku binder died). */
     fun reset() {
         inputBinder = null
+        injectTransactionCode = -1
         holdDownTime = 0L
         lastError = ""
     }
@@ -260,8 +323,8 @@ internal object RemoteTouchInjector {
             data.writeInterfaceToken(INPUT_MANAGER_DESCRIPTOR)
             data.writeInt(1) // event is not null
             event.writeToParcel(data, 0)
-            data.writeInt(INJECT_MODE_ASYNC)
-            binder.transact(TRANSACTION_INJECT_INPUT_EVENT, data, reply, 0)
+            data.writeInt(INJECT_MODE_WAIT_FOR_FINISH)
+            binder.transact(injectTransactionCode, data, reply, 0)
             reply.readException()
             val ok = reply.dataAvail() <= 0 || reply.readInt() != 0
             lastError = if (ok) "" else "injectInputEvent 返回 false"
