@@ -72,6 +72,7 @@ data class MainScreenCallbacks(
     val onToggleOverlay: () -> Unit,
     val onGrantOverlay: () -> Unit,
     val onGrantShizuku: () -> Unit,
+    val onTestInjection: () -> Unit,
     val onGrantNotif: () -> Unit,
     val onGrantBatteryOpt: () -> Unit,
     val onStartSelfCheck: () -> Unit,

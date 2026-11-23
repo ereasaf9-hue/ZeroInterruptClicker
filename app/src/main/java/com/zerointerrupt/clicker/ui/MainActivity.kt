@@ -368,6 +368,12 @@ class MainActivity : ComponentActivity() {
             onGrantShizuku = {
                 handleShizukuAction(scope)
             },
+            onTestInjection = {
+                scope.launch {
+                    val result = ShizukuController.runInjectionSelfTest()
+                    showMessage(scope, result)
+                }
+            },
             onGrantNotif = {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)

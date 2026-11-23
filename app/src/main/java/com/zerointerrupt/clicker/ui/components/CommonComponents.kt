@@ -526,6 +526,30 @@ fun SetupWizardBottomSheet(
                 onAction = callbacks.onGrantShizuku
             )
 
+            // A bound channel is not the same as a working one: some ROMs refuse
+            // INJECT_EVENTS to the shell uid. This sends one real tap so the user can
+            // see whether the game will actually receive touches.
+            if (shizukuConnected) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = callbacks.onTestInjection,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("测试注入")
+                    }
+                    Text(
+                        text = "发送一次真实点击，验证游戏能否收到",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1.6f)
+                    )
+                }
+            }
+
             // Last step: 5-second touch calibration (when hardware touch node readable)
             val touchReadable = state.engineSnapshot.touchDeviceReadable &&
                 state.preferredBackend != ClickGlobalSettings.BACKEND_FALLBACK

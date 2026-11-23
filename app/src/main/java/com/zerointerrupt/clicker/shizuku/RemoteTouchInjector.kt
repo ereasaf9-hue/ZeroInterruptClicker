@@ -81,6 +81,17 @@ internal object RemoteTouchInjector {
     val error: String
         get() = lastError
 
+    /** Resolved `injectInputEvent` transaction id, or -1 before [ensureReady]. */
+    val transactionCode: Int
+        get() = injectTransactionCode
+
+    /** One-line diagnostic string shown in the setup wizard. */
+    fun diagnostics(): String {
+        if (inputBinder == null) return "注入通道未就绪"
+        val code = if (injectTransactionCode > 0) injectTransactionCode.toString() else "?"
+        return "直连注入 · 事务号 $code · API ${Build.VERSION.SDK_INT}"
+    }
+
     /** True when Shizuku is alive and this app currently holds the API permission. */
     fun isShizukuReady(): Boolean = runCatching {
         Shizuku.pingBinder() &&

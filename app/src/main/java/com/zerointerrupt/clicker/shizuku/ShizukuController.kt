@@ -34,6 +34,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.random.Random
 import org.json.JSONObject
@@ -1216,6 +1217,32 @@ object ShizukuController {
             directInjection = true,
             fallbackReady = true
         )
+    }
+
+    /**
+     * Sends a single real tap near the top-centre of the screen and reports what the
+     * system did with it. This is the only way to distinguish "the channel is bound"
+     * from "the ROM actually lets us inject", which previously failed silently.
+     */
+    suspend fun runInjectionSelfTest(): String = withContext(Dispatchers.IO) {
+        val ctx = appContext ?: return@withContext "无法获取应用上下文"
+        if (!RemoteTouchInjector.isShizukuReady()) {
+            return@withContext "Shizuku 未运行或未授权"
+        }
+        if (!RemoteTouchInjector.ensureReady()) {
+            val why = RemoteTouchInjector.error.ifBlank { "未知原因" }
+            return@withContext "注入通道建立失败：$why"
+        }
+        val dm = ctx.resources.displayMetrics
+        val x = dm.widthPixels * 0.5f
+        val y = dm.heightPixels * 0.12f
+        val ok = RemoteTouchInjector.tap(x, y, 40L)
+        if (ok) {
+            "注入成功（事务号 ${RemoteTouchInjector.transactionCode}）"
+        } else {
+            val why = RemoteTouchInjector.error.ifBlank { "未知原因" }
+            "注入被拒绝：$why"
+        }
     }
 
     fun refreshCapabilitiesAsync() {
