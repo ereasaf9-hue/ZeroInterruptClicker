@@ -1670,9 +1670,6 @@ class OverlayService : Service(), ControlBarView.Listener {
     }
 
     override fun onAddTarget() {
-        if (isClicking) {
-            stopClickingInternal()
-        }
         if (isLocked) {
             applyLockMode(false)
         }
@@ -1699,6 +1696,9 @@ class OverlayService : Service(), ControlBarView.Listener {
         selectedTargetId = newTarget.id
         attachSingleAnchor(newTarget)
         persistCurrentTargets()
+        if (isClicking) {
+            pushTargetsToServiceAsync()
+        }
         refreshAnchorVisuals()
         if (tunePanelView != null) {
             showOrUpdateTunePanel(forceShow = true)
@@ -1709,9 +1709,6 @@ class OverlayService : Service(), ControlBarView.Listener {
 
     override fun onRemoveTarget() {
         if (targets.isEmpty()) return
-        if (isClicking) {
-            stopClickingInternal()
-        }
         val removeId = if (targets.any { it.id == selectedTargetId }) {
             selectedTargetId
         } else {
@@ -1734,6 +1731,13 @@ class OverlayService : Service(), ControlBarView.Listener {
         endAnchorLps.remove(removeId)
         selectedTargetId = targets.lastOrNull()?.id ?: -1
         persistCurrentTargets()
+        if (isClicking) {
+            if (targets.none { it.enabled }) {
+                stopClickingInternal()
+            } else {
+                pushTargetsToServiceAsync()
+            }
+        }
         refreshAnchorVisuals()
         if (targets.isEmpty()) {
             dismissTunePanel()
@@ -1746,9 +1750,6 @@ class OverlayService : Service(), ControlBarView.Listener {
     }
 
     override fun onToggleLockEdit() {
-        if (isClicking && isLocked) {
-            stopClickingInternal()
-        }
         applyLockMode(!isLocked)
         scheduleAutoCollapse(IDLE_COLLAPSE_DELAY_MS)
     }
