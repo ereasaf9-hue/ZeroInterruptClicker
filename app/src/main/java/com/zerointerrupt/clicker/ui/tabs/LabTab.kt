@@ -326,8 +326,8 @@ private fun ProHardwareConsoleCard(
                     modifier = Modifier.padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    DiagLine("Shizuku 状态", "${state.connectionState} · ${modeName(snap.engineMode)}")
-                    DiagLine("Shizuku 连接详情", snap.statusDetail)
+                    DiagLine("Shizuku 状态", "${state.connectionState.displayName} · ${modeName(snap.engineMode)}")
+                    DiagLine("Shizuku 连接详情", state.connectionDetail)
                     DiagLine("UID / PID", "${snap.uid} / ${snap.pid}")
                     DiagLine("物理触控节点", snap.touchDeviceInfo.ifBlank { "未发现可读节点" })
                     DiagLine("Abs 量程", snap.absRangeText.ifBlank { "未初始化" })

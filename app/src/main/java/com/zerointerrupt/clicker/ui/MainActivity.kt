@@ -128,7 +128,9 @@ class MainActivity : ComponentActivity() {
         syncFromStorageAndSystem()
 
         setContent {
-            val connectionState by ShizukuController.connectionState.collectAsState()
+            val connectionStatus by ShizukuController.connectionStatus.collectAsState()
+            val connectionState = connectionStatus.state
+            val connectionDetail = connectionStatus.detail
             val engineSnapshot by ShizukuController.engineSnapshot.collectAsState()
             val slotStates by ShizukuController.slotStates.collectAsState()
             val overlayVisible by OverlayStateHub.overlayVisible.collectAsState()
@@ -167,6 +169,7 @@ class MainActivity : ComponentActivity() {
 
             val mergedState = uiModel.copy(
                 connectionState = connectionState,
+                connectionDetail = connectionDetail,
                 engineSnapshot = engineSnapshot,
                 slotStates = slotStates,
                 overlayVisible = overlayVisible,
@@ -978,32 +981,23 @@ class MainActivity : ComponentActivity() {
      * a bind was in flight, so the UI stayed on "connecting" forever.
      */
     private fun handleShizukuAction(scope: kotlinx.coroutines.CoroutineScope) {
-        when (ShizukuController.connectionState.value) {
-            ShizukuConnectionState.SHIZUKU_NOT_RUNNING -> {
-                if (!openShizukuManagerApp()) {
-                    showMessage(scope, "未检测到 Shizuku 后台服务，请先安装并启动 Shizuku")
-                } else {
-                    showMessage(scope, "已打开 Shizuku，请在管理器中启动服务后返回本应用")
-                }
+        val currentState = ShizukuController.connectionStatus.value.state
+        if (currentState == ShizukuConnectionState.SHIZUKU_NOT_RUNNING) {
+            if (!openShizukuManagerApp()) {
+                showMessage(scope, "未检测到 Shizuku 后台服务，请先安装并启动 Shizuku")
+            } else {
+                showMessage(scope, "已打开 Shizuku，请在管理器中启动服务后返回本应用")
             }
+            return
+        }
 
-            ShizukuConnectionState.NO_PERMISSION, ShizukuConnectionState.NEEDS_SHIZUKU_AUTH -> {
-                ShizukuController.requestPermission()
+        ShizukuController.connectOrRecover()
+        when (currentState) {
+            ShizukuConnectionState.NO_PERMISSION,
+            ShizukuConnectionState.NEEDS_SHIZUKU_AUTH ->
                 showMessage(scope, "请在弹出的 Shizuku 授权窗口中允许本应用")
-            }
-
-            ShizukuConnectionState.BINDING, ShizukuConnectionState.ERROR -> {
-                scope.launch(Dispatchers.IO) {
-                    ShizukuController.forceRebind()
-                }
-                showMessage(scope, "正在重建 Shizuku 连接…")
-            }
-
-            ShizukuConnectionState.CONNECTED -> {
-                scope.launch(Dispatchers.IO) {
-                    ShizukuController.refreshCapabilitiesAsync()
-                }
-            }
+            ShizukuConnectionState.ERROR -> showMessage(scope, "正在重新连接 Shizuku…")
+            else -> Unit
         }
     }
 

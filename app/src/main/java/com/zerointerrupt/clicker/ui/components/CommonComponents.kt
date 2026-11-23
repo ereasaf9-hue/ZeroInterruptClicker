@@ -496,16 +496,19 @@ fun SetupWizardBottomSheet(
             val shizukuBtn = when (state.connectionState) {
                 ShizukuConnectionState.SHIZUKU_NOT_RUNNING -> "打开 Shizuku"
                 ShizukuConnectionState.NO_PERMISSION -> "授予权限"
-                ShizukuConnectionState.NEEDS_SHIZUKU_AUTH -> "授权连接"
-                ShizukuConnectionState.BINDING -> "重新连接"
+                ShizukuConnectionState.NEEDS_SHIZUKU_AUTH -> "重新请求授权"
+                ShizukuConnectionState.REQUESTING_PERMISSION -> "等待授权…"
+                ShizukuConnectionState.VERIFYING_PERMISSION -> "确认授权…"
+                ShizukuConnectionState.BINDING -> "连接中…"
+                ShizukuConnectionState.INITIALIZING -> "启动服务…"
                 ShizukuConnectionState.CONNECTED -> "已连接"
-                ShizukuConnectionState.ERROR -> "重试"
+                ShizukuConnectionState.ERROR -> "重试连接"
             }
             val shizukuSubtitle = if (shizukuConnected) {
                 "已连接"
             } else {
-                state.engineSnapshot.statusDetail
-                    .takeIf { it.isNotBlank() && it != "未连接 Shizuku 服务" }
+                state.connectionDetail
+                    .takeIf { it.isNotBlank() }
                     ?: "未连接"
             }
             WizardStepCard(
@@ -514,6 +517,7 @@ fun SetupWizardBottomSheet(
                 subtitle = shizukuSubtitle,
                 done = shizukuConnected,
                 actionLabel = shizukuBtn,
+                actionEnabled = state.connectionState.actionEnabled,
                 onAction = callbacks.onGrantShizuku
             )
 
@@ -652,6 +656,7 @@ private fun WizardStepCard(
     subtitle: String,
     done: Boolean,
     actionLabel: String,
+    actionEnabled: Boolean = true,
     onAction: () -> Unit
 ) {
     Surface(
@@ -700,6 +705,7 @@ private fun WizardStepCard(
             if (done) {
                 FilledTonalButton(
                     onClick = onAction,
+                    enabled = actionEnabled,
                     colors = ButtonDefaults.filledTonalButtonColors(
                         containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)
                     )
@@ -707,7 +713,7 @@ private fun WizardStepCard(
                     Text(actionLabel)
                 }
             } else {
-                Button(onClick = onAction) {
+                Button(onClick = onAction, enabled = actionEnabled) {
                     Text(actionLabel)
                 }
             }
