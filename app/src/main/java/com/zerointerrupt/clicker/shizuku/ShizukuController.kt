@@ -160,7 +160,9 @@ object ShizukuController {
     @Volatile
     private var autoBindRetries = 0
 
-    private const val USER_SERVICE_BIND_TIMEOUT_MS = 15_000L
+    // Shizuku may spend about 30s creating the helper process on slower/OEM devices.
+    // Leave room for that startup window before retiring the bind attempt.
+    private const val USER_SERVICE_BIND_TIMEOUT_MS = 35_000L
     private const val USER_SERVICE_RECONNECT_DELAY_MS = 750L
     private const val PERMISSION_REQUEST_TIMEOUT_MS = 20_000L
     private const val PERMISSION_POLL_INTERVAL_MS = 250L
@@ -883,19 +885,8 @@ object ShizukuController {
             )
             attempt
         }
-        try {
-            Log.i(TAG, "Binding UserService generation=${session.generation}, version=$userServiceVersionCode, forceFresh=$forceFreshService")
-            synchronized(shizukuApiLock) {
-                val stillCurrent = synchronized(lifecycleLock) {
-                    currentSession?.generation == session.generation
-                }
-                if (stillCurrent) Shizuku.bindUserService(session.args, session.connection)
-            }
-        } catch (t: Throwable) {
-            Log.e(TAG, "bindUserService failed for generation=${session.generation}", t)
-            handleSessionFailure(session.generation, "Shizuku UserService 绑定失败：${t.message ?: t.javaClass.simpleName}")
-            return
-        }
+        // Start the timeout before entering Shizuku's synchronous Binder call. Some
+        // OEM/server failures can stall bindUserService itself, before it returns.
         val timeout = scope.launch {
             delay(USER_SERVICE_BIND_TIMEOUT_MS)
             onBindTimeout(session.generation)
@@ -906,6 +897,20 @@ object ShizukuController {
             } else {
                 timeout.cancel()
             }
+        }
+        try {
+            Log.i(TAG, "Binding UserService generation=${session.generation}, version=$userServiceVersionCode, forceFresh=$forceFreshService")
+            synchronized(shizukuApiLock) {
+                val stillCurrent = synchronized(lifecycleLock) {
+                    currentSession?.generation == session.generation
+                }
+                if (stillCurrent) Shizuku.bindUserService(session.args, session.connection)
+            }
+        } catch (t: Throwable) {
+            timeout.cancel()
+            Log.e(TAG, "bindUserService failed for generation=${session.generation}", t)
+            handleSessionFailure(session.generation, "Shizuku UserService 绑定失败：${t.message ?: t.javaClass.simpleName}")
+            return
         }
     }
 
