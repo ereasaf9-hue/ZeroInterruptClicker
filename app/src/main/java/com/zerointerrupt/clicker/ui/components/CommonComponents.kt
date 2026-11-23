@@ -493,24 +493,23 @@ fun SetupWizardBottomSheet(
             )
 
             val shizukuConnected = state.connectionState == ShizukuConnectionState.CONNECTED
-            val shizukuSnap = state.engineSnapshot
-            val shizukuBtn = when {
-                shizukuConnected -> "已连接"
-                !shizukuSnap.shizukuBinderAlive -> "打开 Shizuku"
-                !shizukuSnap.shizukuPermissionGranted -> "授予权限"
-                else -> "重新连接"
+            val shizukuBtn = when (state.connectionState) {
+                ShizukuConnectionState.SHIZUKU_NOT_RUNNING -> "打开 Shizuku"
+                ShizukuConnectionState.NO_PERMISSION -> "授予权限"
+                ShizukuConnectionState.NEEDS_SHIZUKU_AUTH -> "重新请求授权"
+                ShizukuConnectionState.REQUESTING_PERMISSION -> "等待授权…"
+                ShizukuConnectionState.VERIFYING_PERMISSION -> "确认授权…"
+                ShizukuConnectionState.BINDING -> "连接中…"
+                ShizukuConnectionState.INITIALIZING -> "启动服务…"
+                ShizukuConnectionState.CONNECTED -> "已连接"
+                ShizukuConnectionState.ERROR -> "重试连接"
             }
-            val shizukuSubtitle = when {
-                shizukuConnected -> "已连接 · UID ${shizukuSnap.uid}"
-                !shizukuSnap.shizukuBinderAlive ->
-                    "未检测到 Shizuku 服务：请先在 Shizuku 中启动服务"
-                !shizukuSnap.shizukuPermissionGranted ->
-                    "Shizuku 已运行，等待本应用授权"
-                state.connectionState == ShizukuConnectionState.BINDING ->
-                    "Shizuku 已授权，特权服务连接中…"
-                shizukuSnap.lastBindError.isNotBlank() ->
-                    "连接失败：${shizukuSnap.lastBindError}"
-                else -> "Shizuku 已授权，正在连接特权服务"
+            val shizukuSubtitle = if (shizukuConnected) {
+                "已连接"
+            } else {
+                state.connectionDetail
+                    .takeIf { it.isNotBlank() }
+                    ?: "未连接"
             }
             WizardStepCard(
                 step = (stepNum++).toString(),
@@ -518,6 +517,7 @@ fun SetupWizardBottomSheet(
                 subtitle = shizukuSubtitle,
                 done = shizukuConnected,
                 actionLabel = shizukuBtn,
+                actionEnabled = state.connectionState.actionEnabled,
                 onAction = callbacks.onGrantShizuku
             )
 
@@ -656,6 +656,7 @@ private fun WizardStepCard(
     subtitle: String,
     done: Boolean,
     actionLabel: String,
+    actionEnabled: Boolean = true,
     onAction: () -> Unit
 ) {
     Surface(
@@ -704,6 +705,7 @@ private fun WizardStepCard(
             if (done) {
                 FilledTonalButton(
                     onClick = onAction,
+                    enabled = actionEnabled,
                     colors = ButtonDefaults.filledTonalButtonColors(
                         containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f)
                     )
@@ -711,7 +713,7 @@ private fun WizardStepCard(
                     Text(actionLabel)
                 }
             } else {
-                Button(onClick = onAction) {
+                Button(onClick = onAction, enabled = actionEnabled) {
                     Text(actionLabel)
                 }
             }

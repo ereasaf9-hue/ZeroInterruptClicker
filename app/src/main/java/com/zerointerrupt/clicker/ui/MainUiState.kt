@@ -19,6 +19,7 @@ enum class MainTab(val title: String) {
 data class MainUiState(
     val connectionState: ShizukuConnectionState,
     val engineSnapshot: EngineSnapshot,
+    val connectionDetail: String = "Shizuku 未连接",
     val slotStates: List<Int> = List(16) { 0 },
     val overlayVisible: Boolean,
     val clickingRunning: Boolean,

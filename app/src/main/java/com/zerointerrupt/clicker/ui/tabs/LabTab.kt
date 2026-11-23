@@ -53,7 +53,6 @@ import com.zerointerrupt.clicker.R
 import com.zerointerrupt.clicker.automation.AutomationReceiver
 import com.zerointerrupt.clicker.automation.LocalRpcServer
 import com.zerointerrupt.clicker.model.ClickGlobalSettings
-import com.zerointerrupt.clicker.shizuku.ShizukuConnectionState
 import com.zerointerrupt.clicker.shizuku.TouchMuxUserService
 import com.zerointerrupt.clicker.ui.MainScreenCallbacks
 import com.zerointerrupt.clicker.ui.MainUiState
@@ -327,18 +326,8 @@ private fun ProHardwareConsoleCard(
                     modifier = Modifier.padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    DiagLine("Shizuku 状态", "${state.connectionState} · ${modeName(snap.engineMode)}")
-                    DiagLine(
-                        "Shizuku 层次",
-                        "binder=${if (snap.shizukuBinderAlive) "已连接" else "未连接"} · " +
-                            "授权=${if (snap.shizukuPermissionGranted) "已授权" else "未授权"} · " +
-                            "API v${snap.shizukuVersion} · " +
-                            "UserService=${if (state.connectionState == ShizukuConnectionState.CONNECTED) "已绑定" else "未绑定"}"
-                    )
-                    if (snap.lastBindError.isNotBlank()) {
-                        DiagLine("最后一次失败", snap.lastBindError)
-                    }
-                    DiagLine("Shizuku 连接详情", snap.statusDetail)
+                    DiagLine("Shizuku 状态", "${state.connectionState.displayName} · ${modeName(snap.engineMode)}")
+                    DiagLine("Shizuku 连接详情", state.connectionDetail)
                     DiagLine("UID / PID", "${snap.uid} / ${snap.pid}")
                     DiagLine("物理触控节点", snap.touchDeviceInfo.ifBlank { "未发现可读节点" })
                     DiagLine("Abs 量程", snap.absRangeText.ifBlank { "未初始化" })

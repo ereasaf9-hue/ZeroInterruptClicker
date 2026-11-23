@@ -30,9 +30,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -125,29 +123,20 @@ fun HomeTab(
                     .fillMaxWidth(),
                 contentAlignment = Alignment.Center
             ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    HeroWavyRingButton(
-                        needsSetup = state.needsSetupWizard,
-                        overlayVisible = state.overlayVisible,
-                        clickingRunning = state.clickingRunning,
-                        ringSize = ringSize,
-                        onClick = {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            if (state.needsSetupWizard) {
-                                onOpenSetupWizard()
-                            } else {
-                                callbacks.onToggleOverlay()
-                            }
+                HeroWavyRingButton(
+                    needsSetup = state.needsSetupWizard,
+                    overlayVisible = state.overlayVisible,
+                    clickingRunning = state.clickingRunning,
+                    ringSize = ringSize,
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        if (state.needsSetupWizard) {
+                            onOpenSetupWizard()
+                        } else {
+                            callbacks.onToggleOverlay()
                         }
-                    )
-                    ShizukuStatusPill(
-                        state = state,
-                        onClick = callbacks.onGrantShizuku
-                    )
-                }
+                    }
+                )
             }
         }
     }
@@ -381,40 +370,6 @@ private fun HeroWavyRingButton(
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.SemiBold,
             color = cs.onSurface
-        )
-    }
-}
-
-/**
- * Always-visible Shizuku indicator on the home tab. The previous build only surfaced the
- * Shizuku state inside the setup wizard, so a connected Shizuku service looked "not
- * connected" on the main screen. Tapping the pill performs the missing step.
- */
-@Composable
-private fun ShizukuStatusPill(
-    state: MainUiState,
-    onClick: () -> Unit
-) {
-    val cs = MaterialTheme.colorScheme
-    val snap = state.engineSnapshot
-    val connected = state.connectionState == ShizukuConnectionState.CONNECTED
-    val (label, tint) = when {
-        connected -> "Shizuku \u5df2\u8fde\u63a5" to cs.primary
-        !snap.shizukuBinderAlive -> "Shizuku \u672a\u8fd0\u884c \u00b7 \u70b9\u6309\u6253\u5f00" to cs.error
-        !snap.shizukuPermissionGranted -> "Shizuku \u5f85\u6388\u6743 \u00b7 \u70b9\u6309\u6388\u6743" to cs.tertiary
-        else -> "Shizuku \u8fde\u63a5\u4e2d\u2026" to cs.secondary
-    }
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(50),
-        color = tint.copy(alpha = 0.14f),
-        contentColor = tint
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Medium,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
         )
     }
 }
