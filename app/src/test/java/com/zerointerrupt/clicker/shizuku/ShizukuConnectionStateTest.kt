@@ -6,7 +6,7 @@ import org.junit.Test
 
 class ShizukuConnectionStateTest {
     @Test
-    fun inFlightPermissionAndBindStatesCannotBeRestartedByPrimaryButton() {
+    fun inFlightStatesStayBusyAndStalledBindingsRemainRetryable() {
         val busyStates = listOf(
             ShizukuConnectionState.REQUESTING_PERMISSION,
             ShizukuConnectionState.VERIFYING_PERMISSION,
@@ -16,7 +16,15 @@ class ShizukuConnectionStateTest {
 
         busyStates.forEach { state ->
             assertTrue("$state must be displayed as busy", state.isBusy)
-            assertFalse("$state must not expose a restart action", state.actionEnabled)
+            when (state) {
+                ShizukuConnectionState.REQUESTING_PERMISSION,
+                ShizukuConnectionState.VERIFYING_PERMISSION ->
+                    assertFalse("$state must not expose a restart action", state.actionEnabled)
+                ShizukuConnectionState.BINDING,
+                ShizukuConnectionState.INITIALIZING ->
+                    assertTrue("$state must remain retryable if startup stalls", state.actionEnabled)
+                else -> error("Unexpected busy state: $state")
+            }
         }
     }
 
